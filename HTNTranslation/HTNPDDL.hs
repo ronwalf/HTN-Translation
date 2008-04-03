@@ -2,6 +2,7 @@ module HTNTranslation.HTNPDDL (
     module Planning.PDDL,
     HTNDomain (..),
     Method(..),
+    Branch(..),
     TaskList(..),
     parseHTNPDDL
 ) where
@@ -31,21 +32,51 @@ updateInfo f (HTNDomain (d, m, a)) = HTNDomain (f d, m, a)
 updateMethods f (HTNDomain (d, m, a)) = HTNDomain (d, f m, a)
 updateItems f (HTNDomain (d, m, a)) = HTNDomain (d, m, f a)
 
+data Branch = Branch {
+    branchName :: String,
+    bparameters :: [(String, Maybe String)],
+    bprecondition :: Condition,
+    tasks :: TaskList
+} deriving Eq
+
+emptyBranch = Branch {
+    branchName = "",
+    bparameters = [],
+    bprecondition = Empty,
+    tasks = OrderedTasks []
+}
+
 data Method = Method {
     methodName :: String,
-    mparameters :: [(String, Maybe String)],
     taskHead :: (String, [Term]),
-    mprecondition :: Condition,
-    tasks :: TaskList
+    branches :: [Branch]
+} deriving Eq
+
+emptyMethod = Method {
+    methodName = "",
+    taskHead = ("", []),
+    branches = []
 }
+
+instance Show Branch where
+    show b = 
+        let 
+            indent = "    " 
+            params = bparameters b
+        in
+        "  (:branch " ++ (branchName b) ++ "\n" ++
+        indent ++ ":parameters (" ++ (unwords $ map (\x -> "?" ++ showType x) params) ++ ")\n" ++
+        indent ++ ":precondition " ++ (show $ bprecondition b) ++ "\n" ++
+        indent ++ ":tasks " ++ (show $ tasks b) ++ "\n" ++
+        "  )\n"
 
 instance Show Method where
     show m = let indent = "  " in
         "(:method " ++ (methodName m) ++ "\n" ++
         indent ++ ":task (" ++ (showTaskHead m) ++ ")\n" ++
-        indent ++ ":parameters (" ++ (unwords $ map (\x -> "?" ++ showType x) $ mparameters m) ++ ")\n" ++
-        indent ++ ":precondition " ++ (show $ mprecondition m) ++ "\n" ++
-        indent ++ ":tasks " ++ (show $ tasks m) ++ "\n" ++
+        indent ++ ":branches (\n" ++
+        (unlines $ map show $ branches m) ++
+        "  )\n" ++
         ")"
         where
             showTaskHead m =
@@ -78,7 +109,7 @@ instance DomainInfoSink HTNDomain Condition DomainItem where
 
 htnLanguage = pddlLanguage {
     T.reservedNames = T.reservedNames pddlLanguage ++
-        [":method", ":task", ":tasks"]
+        [":method", ":task", ":tasks", ":branch", ":branches"]
     }
 
 htnLexer = T.makeTokenParser htnLanguage
@@ -96,7 +127,7 @@ htnParser = let
 methodParser lex condParser = do
     try $ T.reserved lex ":method"
     name <- T.identifier lex
-    method <- collect (Method { methodName = name }) (methodInfoParser lex condParser)
+    method <- collect (emptyMethod { methodName = name }) (methodInfoParser lex condParser)
     updateState (updateMethods (\ml -> method : ml))
 
 methodInfoParser lex condParser method =
@@ -108,21 +139,26 @@ methodInfoParser lex condParser method =
             return $ method { taskHead = (name, terms) }))
     <|>
     (do
-        try $ T.reserved lex ":parameters"
-        T.parens lex (do
-            terms <- parseTypedList lex $ (char '?' >> T.identifier lex)
-            return $ method { mparameters = terms }))
-    <|>
-    (do
-        try $ T.reserved lex ":precondition"
-        T.parens lex (do
-            cond <- condParser
-            return $ method { mprecondition = cond }))
-    <|>
-    (do
-        try $ T.reserved lex ":tasks"
-        tasks <- taskListParser lex
-        return $ method { tasks = tasks })
+        try $ T.reserved lex ":branches"
+        bl <- T.parens lex $ many $ branchParser lex condParser
+        return $ method {branches = (branches method) ++ bl})
+ 
+ 
+branchParser lex condParser = T.parens lex $ do
+    T.reserved lex ":branch"
+    name <- T.identifier lex
+    collect (emptyBranch { branchName = name }) (\b ->
+        (do
+            try $ T.reserved lex ":precondition"
+            cond <- T.parens lex $ condParser
+            return $ b { bprecondition = cond })
+        <|>
+        (do
+            try $ T.reserved lex ":tasks"
+            tasks <- taskListParser lex
+            return $ b { tasks = tasks }))
+
+        
 
 taskListParser lex = T.parens lex (
     (do

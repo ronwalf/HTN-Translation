@@ -11,7 +11,11 @@ processDomain domfile = do
     printResult $ parseHTNPDDL domfile contents
     where
         printResult (Left err) = print err
-        printResult (Right dom) = print $ translate dom
+        printResult (Right dom) = do
+            print dom
+            print "--------"
+            domain <- translate dom
+            print domain
 
 main = do
     args <- getArgs
