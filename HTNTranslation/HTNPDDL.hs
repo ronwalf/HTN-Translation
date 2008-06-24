@@ -13,8 +13,8 @@ import Text.ParserCombinators.Parsec
 import qualified Text.ParserCombinators.Parsec.Token as T
 import Text.PrettyPrint
 
-import Planning.PDDL.Representation2
-import Planning.PDDL.Parser2
+import Planning.PDDL.Representation
+import Planning.PDDL.Parser
 
 type TermExpr = Expr (Const :+: Var)
 type TypedTermExpr = Expr (Typed TermExpr :+: Const :+: Var)
