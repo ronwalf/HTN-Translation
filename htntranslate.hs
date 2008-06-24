@@ -6,7 +6,7 @@ import System.IO
 import HTNTranslation.HTNPDDL
 import HTNTranslation.Translation
 
-processDomain domfile = do
+processDomain arity domfile = do
     contents <- readFile domfile
     printResult $ parseHTNPDDL domfile contents
     where
@@ -14,9 +14,13 @@ processDomain domfile = do
         printResult (Right dom) = do
             print dom
             print "--------"
-            domain <- translate dom
+            let domain = translateDomain arity dom :: Domain (Expr (Action GoalExpr))
             print domain
 
 main = do
-    args <- getArgs
-    sequence_ [processDomain domfile | domfile <- args]
+    stackArity:args <- getArgs
+    sequence_ [
+        processDomain 
+            (read stackArity :: Int) 
+            domfile 
+        | domfile <- args]

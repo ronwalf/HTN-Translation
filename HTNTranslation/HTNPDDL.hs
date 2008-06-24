@@ -1,112 +1,82 @@
 module HTNTranslation.HTNPDDL (
-    module Planning.PDDL,
-    HTNDomain (..),
-    Method(..),
-    Branch(..),
-    TaskList(..),
+    module Planning.PDDL.Representation,
+    HTNDomain,
+    Method(..), method, 
+    Branch(..), emptyBranch,
+    TaskList, taskName, taskArgs,
+    TermExpr,
+    TypedTermExpr,
     parseHTNPDDL
 ) where
 
 import Text.ParserCombinators.Parsec
 import qualified Text.ParserCombinators.Parsec.Token as T
+import Text.PrettyPrint
 
-import Planning.PDDL
-import Planning.PDDL.Parser
+import Planning.PDDL.Representation2
+import Planning.PDDL.Parser2
 
-newtype HTNDomain = HTNDomain (DomainInfo, [Method], [DomainItem])
+type TermExpr = Expr (Const :+: Var)
+type TypedTermExpr = Expr (Typed TermExpr :+: Const :+: Var)
 
-instance Show HTNDomain where
-    show (HTNDomain (info, methods, items)) = 
-        let indent = "  " in
-        "; " ++ (domainName info) ++ " domain\n" ++
-        "(define " ++ (show info) ++ "\n" ++
-        (unlines $ map show methods) ++ "\n" ++ 
-        (unlines $ map show items) ++
-        ")\n"
+type HTNDomain c = Domain (Expr (Action c :+: Method c))
 
-emptyHTN =
-    let (Domain (info, _)) = emptyDomain in
-    HTNDomain (info, [], [])
+type TaskList = [Expr (StdAtomicType)]
+taskName (In (Atomic p _)) = p
+taskArgs (In (Atomic _ al)) = al
 
-updateInfo f (HTNDomain (d, m, a)) = HTNDomain (f d, m, a)
-updateMethods f (HTNDomain (d, m, a)) = HTNDomain (d, f m, a)
-updateItems f (HTNDomain (d, m, a)) = HTNDomain (d, m, f a)
-
-data Branch = Branch {
+data Branch c = Branch {
     branchName :: String,
-    bparameters :: [(String, Maybe String)],
-    bprecondition :: Condition,
+    bparameters :: [TypedVarExpr],
+    bprecondition :: Maybe c,
     tasks :: TaskList
 } deriving Eq
 
+
 emptyBranch = Branch {
-    branchName = "",
+    branchName = "empty",
     bparameters = [],
-    bprecondition = Empty,
-    tasks = OrderedTasks []
+    bprecondition = Nothing,
+    tasks = []
 }
 
-data Method = Method {
+data Method c e = Method {
     methodName :: String,
-    taskHead :: (String, [Term]),
-    branches :: [Branch]
+    mparameters :: [TypedVarExpr],
+    taskHead :: Expr (Atomic TermExpr),
+    mprecondition :: Maybe c,
+    branches :: [Branch c]
 } deriving Eq
+instance Functor (Method c) where
+    fmap f (Method n p t pre b) = Method n p t pre b
+instance (Eq c) => FuncEq (Method c) where
+    funcEq (Method n1 p1 h1 pre1 b1) (Method n2 p2 h2 pre2 b2) =
+        (n1 == n2) && (p1 == p2) && (h1 == h2) && (pre1 == pre2) && (b1 == b2)
+method name params task precond branches = inject (Method name params task precond branches)
 
-emptyMethod = Method {
-    methodName = "",
-    taskHead = ("", []),
-    branches = []
-}
 
-instance Show Branch where
-    show b = 
-        let 
-            indent = "    " 
-            params = bparameters b
-        in
-        "  (:branch " ++ (branchName b) ++ "\n" ++
-        indent ++ ":parameters (" ++ (unwords $ map (\x -> "?" ++ showType x) params) ++ ")\n" ++
-        indent ++ ":precondition " ++ (show $ bprecondition b) ++ "\n" ++
-        indent ++ ":tasks " ++ (show $ tasks b) ++ "\n" ++
-        "  )\n"
-
-instance Show Method where
-    show m = let indent = "  " in
-        "(:method " ++ (methodName m) ++ "\n" ++
-        indent ++ ":task (" ++ (showTaskHead m) ++ ")\n" ++
-        indent ++ ":branches (\n" ++
-        (unlines $ map show $ branches m) ++
-        "  )\n" ++
-        ")"
+instance PDDLDoc c => PDDLDoc (Method (Expr c)) where
+    pddlDoc (Method name params (In task) precond branches) = parens $
+        (text ":method" <+> text name) $$
+        (text ":parameters" <+> parens (sep $ map pddlExprDoc params)) $$
+        (text ":task" <+> pddlDoc task) $$
+        (text ":precondition" <+> (case precond of
+            Just (In c) -> pddlDoc c
+            _ -> parens empty)) $$
+        sep [text ":branches", parens (sep $ map branchDoc branches)]
         where
-            showTaskHead m =
-                let 
-                    name = fst $ taskHead m
-                    parts = map show $ snd $ taskHead m
-                in
-                unwords (name : parts)
-
-data TaskList = 
-    Task String [Term]
-    | OrderedTasks [TaskList]
-    deriving Eq
-
-instance Show TaskList where
-    show (Task name tl) = "(" ++ (unwords (name : map show tl)) ++ ")"
-    show (OrderedTasks tl) = "(" ++ (unwords $ map show tl) ++ ")"
+            branchDoc br = parens $
+                (text ":branch" <+> text (branchName br)) $$
+                (text ":parameters" <+> parens (sep $ map pddlExprDoc $ bparameters br)) $$
+                (text ":precondition" <+> (case (bprecondition br) of
+                    Just (In c) -> pddlDoc c
+                    _ -> parens empty)) $$
+                (text ":tasks" <+> sep [pddlDoc t | In t <- tasks br])
 
 
-instance DomainInfoSink HTNDomain Condition DomainItem where
-    setDomainName n = updateInfo (\i -> i { domainName = n })
-    setRequirements r = updateInfo (\i -> i { requirements = r })
-    setTypes t = updateInfo (\i -> i { types = t })
-    setConstants c = updateInfo (\i -> i { constants = c })
-    setPredicates p = updateInfo (\i -> i { predicates = p })
-    setFunctions f = id
-    setConstraints c = id
-    addAction a = updateItems (\al -> a : al)
 
 
+            
 htnLanguage = pddlLanguage {
     T.reservedNames = T.reservedNames pddlLanguage ++
         [":method", ":task", ":tasks", ":branch", ":branches"]
@@ -114,9 +84,10 @@ htnLanguage = pddlLanguage {
 
 htnLexer = T.makeTokenParser htnLanguage
 
+htnParser :: GenParser Char (HTNDomain GoalExpr) (HTNDomain GoalExpr)
 htnParser = let 
         lex = htnLexer 
-        condParser = conditionParser lex
+        condParser = conditionParser lex :: CharParser (HTNDomain GoalExpr) GoalExpr
         actions =
             (actionParser lex condParser)
             <|>
@@ -124,57 +95,63 @@ htnParser = let
     in
     domainParser lex (domainInfoParser lex (condParser)) actions
 
+
+parseTypedTerm :: T.TokenParser a -> CharParser a TypedTermExpr
+parseTypedTerm lex =
+    (try $ do
+        In (Const cstr) <- constParser lex
+        option (eConst cstr) (do
+            T.reserved lex "-"
+            tstr <- T.identifier lex
+            return $ typed (eConst cstr :: TermExpr) (eConst tstr :: Expr Const)))
+    <|>
+    (do
+        In (Var vstr) <- varParser lex
+        option (eVar vstr) (do
+            T.reserved lex "-"
+            tstr <- T.identifier lex
+            return $ typed (eVar vstr :: TermExpr) (eConst tstr :: Expr Const)))
+
 methodParser lex condParser = do
     try $ T.reserved lex ":method"
     name <- T.identifier lex
-    method <- collect (emptyMethod { methodName = name }) (methodInfoParser lex condParser)
-    updateState (updateMethods (\ml -> method : ml))
+    T.reserved lex ":parameters"
+    params <- T.parens lex $ many $ parseTypedVar lex
+    T.reserved lex ":task"
+    task <- T.parens lex $ atomicFormulaParser lex (termParser lex)
+    T.reserved lex ":precondition"
+    precond <- maybeParser lex condParser
+    T.reserved lex ":branches"
+    bl <- T.parens lex $ many $ branchParser lex condParser
+    let m = method name params task precond bl
+    updateState (\d -> d { items = m : items d })
 
-methodInfoParser lex condParser method =
-    (do
-        try $ T.reserved lex ":task"
-        T.parens lex (do
-            name <- T.identifier lex
-            terms <- many $ termParser lex
-            return $ method { taskHead = (name, terms) }))
-    <|>
-    (do
-        try $ T.reserved lex ":branches"
-        bl <- T.parens lex $ many $ branchParser lex condParser
-        return $ method {branches = (branches method) ++ bl})
- 
- 
+
 branchParser lex condParser = T.parens lex $ do
     T.reserved lex ":branch"
     name <- T.identifier lex
     collect (emptyBranch { branchName = name }) (\b ->
         (do
+            try $ T.reserved lex ":parameters"
+            parameters <- T.parens lex $ many $ parseTypedVar lex
+            return $ b { bparameters = parameters })
+        <|>
+        (do
             try $ T.reserved lex ":precondition"
-            cond <- T.parens lex $ condParser
+            cond <- maybeParser lex condParser
             return $ b { bprecondition = cond })
         <|>
         (do
             try $ T.reserved lex ":tasks"
-            tasks <- taskListParser lex
+            tasks <- T.parens lex $ many $ taskParser lex
             return $ b { tasks = tasks }))
 
         
 
-taskListParser lex = T.parens lex (
-    (do
-        name <- T.identifier lex
-        terms <- many $ termParser lex
-        return $ Task name terms)
-    <|>
-    (do
-        tasks <- many $ taskListParser lex
-        return $ OrderedTasks tasks)
-    <|>
-    (do
-        name <- T.identifier lex
-        terms <- many $ termParser lex
-        return $ Task name terms))
+taskParser lex = T.parens lex (do
+    name <- T.identifier lex
+    terms <- many $ termParser lex
+    return $ eAtomic name terms)
 
 parseHTNPDDL source input =
-    runParser htnParser emptyHTN source input
-
+    runParser htnParser emptyDomain source input
