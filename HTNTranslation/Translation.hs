@@ -18,7 +18,7 @@ varIds :: (:<:) Var f => [Expr Var] -> [Expr f]
 varIds vars = map varId vars
 
 -- Fixed stack functions
-
+stackType = eConst "STACKITEM"
 stackTop :: (:<:) (Atomic (Expr f)) g => [Expr f] -> Expr g
 stackTop vars = eAtomic "stackTop" vars
 --stackList :: (:<:) (Atomic (Expr f)) g => [Expr f] -> [Expr f] -> Expr g
@@ -315,10 +315,9 @@ eUnique f el prefix =
 translateDomain stackArity domain =
     let
         isAtomic = atomicTester $ items domain
-        stackType = "STACKDIGIT"
         (oVars, nVars) = 
             splitAt stackArity [eVar ("v" ++ show n) :: Expr Var | n <- [1.. (2*stackArity)]]
-        stackArgs = [ typed v (eConst stackType) :: TypedVarExpr
+        stackArgs = [ typed v stackType :: TypedVarExpr
             | v <- oVars ++ nVars ] :: [TypedVarExpr]
         DomainMod newPreds controlled domActions = addDMods $
             map (foldExpr (translateItem (isAtomic, stackArgs, oVars, nVars))) $
@@ -330,7 +329,7 @@ translateDomain stackArity domain =
     Domain {
         domainName = domainName domain,
         requirements = requirements domain,
-        types = types domain ++ [eConst stackType],
+        types = types domain ++ [eConst "STACKITEM" :: TypedConstExpr],
         constants = constants domain,
         predicates = predicates domain ++
             [stackTop (take stackArity stackArgs), 
@@ -343,3 +342,19 @@ translateDomain stackArity domain =
              newPreds,
         items = cActions
     }
+
+translateProblem numDigits stackArity problem =
+    let
+        stackItems = [ eConst $ "stackDigit" ++ show n | n <- [1..numDigits] ] :: [Expr Const]
+        stackRel =
+            stackTop (replicate (stackArity - 1) (stackItems !! 0) ++ [stackItems !! 1]) :
+            beginP (head stackItems) :
+            endP (last stackItems) :
+            [sameP i i | i <- stackItems] ++
+            [nextP i1 i2 | i1 <- stackItems | i2 <- tail stackItems]
+    in
+    problem {
+        objects = objects problem ++ [typed i stackType | i <- stackItems],
+        initial = initial problem ++ stackRel
+    }
+        
