@@ -4,9 +4,12 @@
  (:objects
   banjo - OBJ viola - OBJ apple - OBJ)
  (:init
-  (have banjo))
- (:goal
   (start_swap apple banjo)
-  (have apple)))
+  (have banjo))
+ (:goal (and
+  (have apple)
+  (stackTop stackDigit1)
+  )))
+
  
   

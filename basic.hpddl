@@ -1,5 +1,5 @@
 (define (domain basic)
-(:requirements :disjunctive-preconditions :negative-preconditions :strips)
+(:requirements :disjunctive-preconditions :strips)
 (:types OBJ)
 (:predicates
   (have ?o - OBJ)

@@ -70,11 +70,10 @@ stackCondition :: forall f g.
     [Expr f] -> [Expr f] -> (Expr g)
 stackCondition oldVars newVars = 
     let
-        stackP = stackTop oldVars
         varPairs = zip oldVars newVars
         parts = [eAnd $ stackIncr varPairs n | n <- [0 .. (length oldVars - 1)]]
     in
-    eAnd [ stackP, eOr parts ]
+    eOr parts
     where
         stackIncr varPairs pos =
             let 
@@ -278,8 +277,10 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
         domainItem $ action 
             (prefix ++ "_" ++ branchName branch)
             (methodParams ++ bparameters branch)
-            (Just $ eAnd $ precondList ++ (maybeToList $ bprecondition branch))
-            (Just $ eNot $ eAtomic (taskName task) (taskArgs task) :: Maybe (Expr e))]
+            (Just $ eAnd $ 
+                startP (taskName task) (taskArgs task) :
+                precondList ++ (maybeToList $ bprecondition branch))
+            (Just $ eNot $ startP (taskName task) (taskArgs task) :: Maybe (Expr e))]
     | otherwise =
     let
         -- Number of sub tasks
@@ -310,8 +311,10 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
             [[ controlP, stackTop otVars] 
                 | controlP <- controlPs]
         -- preconditions with waiting for previous task
-        waitingPreconds = head basicPreconds : [ pl ++ [eNot prevP]
+        waitingPreconds = head basicPreconds : 
+            [ pl ++ [eNot prevP, eNot $ startP (taskName t) (taskArgs t)]
             | prevP <- controlPs
+            | t <- tasks branch
             | pl <- tail basicPreconds ]
         -- preconditions for non-atomic sub tasks
         stackedPreconds = [ pl ++ if atomicity then [] else [stackCondition otVars ntVars]
@@ -337,7 +340,7 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
             (Just $ eAnd preconds)
             (Just $ eAnd effs)
             | name <- bnames
-            | needAllStack <- atomicities ++ if popStack then [True] else []
+            | needAllStack <- (map not atomicities) ++ if popStack then [True] else []
             | preconds <- allPreconds
             | effs <- allEffects ]
     in
@@ -380,7 +383,7 @@ translateDomain stackArity domain template =
             items domain
         (startPreds, cActions) = unzip $
             map (foldExpr (controlIfMatch (\x -> x `elem` controlled))) domActions
-        taskPreds = mapMaybe (foldExpr collectTask) $ items domain
+        taskPreds = nub $ mapMaybe (foldExpr collectTask) $ items domain
     in
     Domain {
         domainName = domainName domain,
@@ -410,7 +413,8 @@ translateProblem numDigits stackArity problem =
             [nextP i1 i2 | i1 <- stackItems | i2 <- tail stackItems]
     in
     problem {
-        objects = objects problem ++ [eTyped i stackType | i <- stackItems],
+        objects = objects problem ++ 
+            [eTyped i stackType | i <- stackItems],
         initial = initial problem ++ stackRel
     }
         
