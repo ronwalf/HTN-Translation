@@ -10,8 +10,6 @@ module HTNTranslation.HTNPDDL (
     Branches, getBranches, setBranches,
     Branch(..), emptyBranch,
     TaskList, taskName, taskArgs,
-    TermExpr,
-    TypedTermExpr,
     parseHTNPDDL
 ) where
 
@@ -23,9 +21,6 @@ import Text.PrettyPrint
 
 import Planning.PDDL.Representation
 import Planning.PDDL.Parser
-
-type TermExpr = Expr (Const :+: Var)
-type TypedTermExpr = Expr (Typed TermExpr :+: Const :+: Var)
 
 type StandardHTNDomain = Domain (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
 deriving instance Data (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
@@ -160,22 +155,6 @@ htnParser = let
     in
     domainParser lex (domainInfoParser lex (condParser)) actions
 
-
-parseTypedTerm :: T.TokenParser a -> CharParser a TypedTermExpr
-parseTypedTerm lex =
-    (try $ do
-        In (Const cstr) <- constParser lex
-        option (eConst cstr) (do
-            T.reserved lex "-"
-            tstr <- T.identifier lex
-            return $ eTyped (eConst cstr :: TermExpr) (eConst tstr :: Expr Const)))
-    <|>
-    (do
-        In (Var vstr) <- varParser lex
-        option (eVar vstr) (do
-            T.reserved lex "-"
-            tstr <- T.identifier lex
-            return $ eTyped (eVar vstr :: TermExpr) (eConst tstr :: Expr Const)))
 
 methodParser :: forall f a .
     ((:<:) (DomainItem (Method f)) a, Data f, Data (Expr a)) => 

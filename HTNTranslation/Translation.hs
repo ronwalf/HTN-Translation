@@ -237,6 +237,7 @@ instance forall p e f .
             preconds :: [[Expr p]]
             preconds =
                 map (\ pl -> catMaybes $ getPrecondition m : pl) $
+                (\pls -> [ bprecondition b : pl | b <- mbranches | pl <- pls]) $
                 inits $
                 map (\b -> case (bprecondition b) of
                     Just pre -> Just $ eForAll (bparameters b) $ eNot $ pre
@@ -303,8 +304,9 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
             tail [ startP bname pvars | bname <- bnames ]
         controlledNames = [taskName t | t <- tasks branch, isAtomic (taskName t)]
         newPreds = [ startP name params1 | name <- tail bnames ]
-        -- Which sub tasks are atomic:
-        atomicities = map (isAtomic . taskName) $ tasks branch
+        -- Which sub tasks are atomic.  Always treat last task as atomic
+        atomicities = if null (tasks branch) then [] else
+            (init (map (isAtomic . taskName) $ tasks branch) ++ [True])
 
         -- basic preconditions for all tasks
         basicPreconds =
@@ -324,8 +326,9 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
         allPreconds = (precondList ++ head stackedPreconds) : tail stackedPreconds
         -- Effects
         -- starting subtask
-        startEffects = [ eNot controlE : startEffect t
+        startEffects = [ eNot controlE : startEffect a t
             | t <- tasks branch 
+            | a <- atomicities
             | controlE <- controlEs ] ++
             if popStack then 
                 [[eNot $ last controlEs, eNot $ stackTop otVars, stackTop ntVars]] else []
@@ -350,9 +353,9 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
         startCondition t
             | isAtomic (taskName t) = []
             | otherwise = [stackCondition (varIds oVars :: [TermExpr]) (varIds nVars :: [TermExpr])]
-        startEffect :: Expr StdAtomicType -> [Expr e]
-        startEffect t
-            | isAtomic (taskName t) = [startP (taskName t) (taskArgs t)]
+        startEffect :: Bool -> Expr StdAtomicType -> [Expr e]
+        startEffect bumpStack t
+            | bumpStack = [startP (taskName t) (taskArgs t)]
             | otherwise = [ 
                 startP (taskName t) (taskArgs t),
                 eNot $ stackTop (varIds oVars :: [TermExpr]),
