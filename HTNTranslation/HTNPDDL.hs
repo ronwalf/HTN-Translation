@@ -1,7 +1,13 @@
+{-# OPTIONS
+ -fglasgow-exts
+ -fallow-overlapping-instances
+ #-}
 module HTNTranslation.HTNPDDL (
     module Planning.PDDL.Representation,
-    HTNDomain,
-    Method(..), method, 
+    StandardHTNDomain,
+    Method, StandardMethod,
+    TaskHead, getTaskHead, setTaskHead,
+    Branches, getBranches, setBranches,
     Branch(..), emptyBranch,
     TaskList, taskName, taskArgs,
     TermExpr,
@@ -9,6 +15,8 @@ module HTNTranslation.HTNPDDL (
     parseHTNPDDL
 ) where
 
+import Data.Generics (Data, Typeable, Typeable1)
+import Data.Maybe
 import Text.ParserCombinators.Parsec
 import qualified Text.ParserCombinators.Parsec.Token as T
 import Text.PrettyPrint
@@ -19,7 +27,8 @@ import Planning.PDDL.Parser
 type TermExpr = Expr (Const :+: Var)
 type TypedTermExpr = Expr (Typed TermExpr :+: Const :+: Var)
 
-type HTNDomain c = Domain (Expr (Action c :+: Method c))
+type StandardHTNDomain = Domain (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
+deriving instance Data (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
 
 type TaskList = [Expr (StdAtomicType)]
 taskName (In (Atomic p _)) = p
@@ -30,7 +39,8 @@ data Branch c = Branch {
     bparameters :: [TypedVarExpr],
     bprecondition :: Maybe c,
     tasks :: TaskList
-} deriving Eq
+} deriving (Data, Eq)
+deriving instance Typeable1 Branch
 
 
 emptyBranch = Branch {
@@ -40,6 +50,7 @@ emptyBranch = Branch {
     tasks = []
 }
 
+{-
 data Method c e = Method {
     methodName :: String,
     mparameters :: [TypedVarExpr],
@@ -53,7 +64,6 @@ instance (Eq c) => FuncEq (Method c) where
     funcEq (Method n1 p1 h1 pre1 b1) (Method n2 p2 h2 pre2 b2) =
         (n1 == n2) && (p1 == p2) && (h1 == h2) && (pre1 == pre2) && (b1 == b2)
 method name params task precond branches = inject (Method name params task precond branches)
-
 
 instance PDDLDoc c => PDDLDoc (Method (Expr c)) where
     pddlDoc (Method name params (In task) precond branches) = parens $
@@ -72,9 +82,64 @@ instance PDDLDoc c => PDDLDoc (Method (Expr c)) where
                     Just (In c) -> pddlDoc c
                     _ -> parens empty)) $$
                 (text ":tasks" <+> sep [pddlDoc t | In t <- tasks br])
+-}
+
+data TaskHead f = TaskHead (Expr (Atomic f)) deriving (Data, Eq, Typeable)
+unTaskHead (TaskHead h) = h
+class (Data a, Data f) => HasTaskHead f a | a -> f where
+    getTaskHead :: a -> Expr (Atomic f)
+    getTaskHead = unTaskHead . fromJust . gfind
+    setTaskHead :: Expr (Atomic f) -> a -> a
+    setTaskHead h r = fromJust $ greplace r (TaskHead h)
+
+data Branches c = Branches [Branch c] deriving (Data, Eq)
+deriving instance Typeable1 Branches
+unBranches (Branches bl) = bl
+class (Data a, Data c) => HasBranches c a | a -> c where
+    getBranches :: a -> [Branch c]
+    getBranches = unBranches . fromJust . gfind
+    setBranches :: [Branch c] -> a -> a
+    setBranches bl r = fromJust $ greplace r (Branches bl)
+
+data Method c = Method
+    Name
+    (Parameters TypedVarExpr)
+    (TaskHead TermExpr)
+    (Precondition c)
+    (Branches c)
+    deriving (Data, Eq)
+deriving instance Typeable1 Method
 
 
+instance Data c => HasName (Method c)
+instance Data c => HasParameters TypedVarExpr (Method c)
+instance Data c => HasTaskHead TermExpr (Method c)
+instance Data c => HasPrecondition c (Method c)
+instance Data c => HasBranches c (Method c)
 
+defaultMethod = Method undefined 
+    (Parameters [])
+    undefined
+    (Precondition Nothing)
+    (Branches [])
+
+instance (Data (Expr c), PDDLDoc c) => PDDLDoc (DomainItem (Method (Expr c))) where
+    pddlDoc (DomainItem m) = parens $ sep [
+        text ":method" <+> text (getName m),
+        text ":parameters" <+> parens (sep $ map pddlExprDoc $ getParameters m),
+        text ":task" <+> pddlExprDoc (getTaskHead m),
+        docMaybe ":precondition" $ getPrecondition m,
+        sep [text ":branches", parens ( sep $ map branchDoc $ getBranches m )]]
+        where
+            branchDoc br = parens $ sep [
+                text ":branch" <+> text (branchName br),
+                text ":parameters" <+> parens (sep $ map pddlExprDoc $ bparameters br),
+                docMaybe ":precondition" $ bprecondition br,
+                text ":tasks" <+> parens (sep $ map pddlExprDoc $ tasks br) ]
+                
+        
+
+type StandardMethod = Method GoalExpr
 
             
 htnLanguage = pddlLanguage {
@@ -84,14 +149,14 @@ htnLanguage = pddlLanguage {
 
 htnLexer = T.makeTokenParser htnLanguage
 
-htnParser :: GenParser Char (HTNDomain GoalExpr) (HTNDomain GoalExpr)
+htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
 htnParser = let 
         lex = htnLexer 
-        condParser = conditionParser lex :: CharParser (HTNDomain GoalExpr) GoalExpr
+        condParser = conditionParser lex :: CharParser StandardHTNDomain GoalExpr
         actions =
             (actionParser lex condParser)
             <|>
-            (methodParser lex condParser)
+            (methodParser lex condParser :: CharParser StandardHTNDomain ())
     in
     domainParser lex (domainInfoParser lex (condParser)) actions
 
@@ -103,29 +168,42 @@ parseTypedTerm lex =
         option (eConst cstr) (do
             T.reserved lex "-"
             tstr <- T.identifier lex
-            return $ typed (eConst cstr :: TermExpr) (eConst tstr :: Expr Const)))
+            return $ eTyped (eConst cstr :: TermExpr) (eConst tstr :: Expr Const)))
     <|>
     (do
         In (Var vstr) <- varParser lex
         option (eVar vstr) (do
             T.reserved lex "-"
             tstr <- T.identifier lex
-            return $ typed (eVar vstr :: TermExpr) (eConst tstr :: Expr Const)))
+            return $ eTyped (eVar vstr :: TermExpr) (eConst tstr :: Expr Const)))
 
+methodParser :: forall f a .
+    ((:<:) (DomainItem (Method f)) a, Data f, Data (Expr a)) => 
+    T.TokenParser (Domain (Expr a)) -> 
+    CharParser (Domain (Expr a)) f -> 
+    CharParser (Domain (Expr a)) ()
 methodParser lex condParser = do
+    let infoParser = methodInfoParser lex condParser :: CharParser (Domain (Expr a)) (Method f -> Method f)
     try $ T.reserved lex ":method"
     name <- T.identifier lex
-    T.reserved lex ":parameters"
-    params <- T.parens lex $ many $ parseTypedVar lex
-    T.reserved lex ":task"
-    task <- T.parens lex $ atomicFormulaParser lex (termParser lex)
-    T.reserved lex ":precondition"
-    precond <- maybeParser lex condParser
-    T.reserved lex ":branches"
-    bl <- T.parens lex $ many $ branchParser lex condParser
-    let m = method name params task precond bl
-    updateState (\d -> d { items = m : items d })
+    updates <- many infoParser
+    let method = foldl (\a t -> t a) (setName name defaultMethod) updates
+    updateState (\d -> d { items = domainItem method : items d })
 
+methodInfoParser lex condParser =
+    paramParser lex
+    <|>
+    precondParser lex condParser
+    <|>
+    (do
+        try $ T.reserved lex ":task"
+        task <- T.parens lex $ atomicFormulaParser lex (termParser lex)
+        return $ setTaskHead (task :: Expr StdAtomicType))
+    <|>
+    (do
+        try $ T.reserved lex ":branches"
+        bl <- T.parens lex $ many $ branchParser lex condParser
+        return $ setBranches bl)
 
 branchParser lex condParser = T.parens lex $ do
     T.reserved lex ":branch"

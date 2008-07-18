@@ -12,9 +12,7 @@ processDomain arity domfile = do
     where
         printResult (Left err) = print err
         printResult (Right dom) = do
-            print dom
-            print "--------"
-            let domain = translateDomain arity dom :: Domain (Expr (Action GoalExpr))
+            let domain = translateDomain arity dom (undefined :: GoalExpr) :: StandardDomain
             print domain
 
 main = do
