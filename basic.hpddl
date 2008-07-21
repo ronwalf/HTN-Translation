@@ -36,12 +36,14 @@
 
 (:action pickup
  :parameters (?x - OBJ)
+ :task (pickup ?x)
  :precondition (handempty)
  :effect (have ?x)
 )
 
 (:action drop
  :parameters (?x - OBJ)
+ :task (drop ?x)
  :precondition (have ?x)
  :effect (and (handempty) (not (have ?x)))
 )

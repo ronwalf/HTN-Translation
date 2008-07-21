@@ -52,6 +52,9 @@ sameP ovar nvar = eAtomic "counterSame" [ovar, nvar]
 --startP stackVars False name args = eAtomic ("start_" ++ name) $ args ++ stackVars
 startP name args = eAtomic ("start_" ++ name) args
 
+startTaskH Nothing = Nothing
+startTaskH (Just th) = Just $ startP (taskName th) (taskArgs th)
+
 
 
 stackVar :: [Expr Var] -> Int -> Expr Var
@@ -97,10 +100,14 @@ class Functor f => AtomicTester f where
 instance (AtomicTester f, AtomicTester g) => AtomicTester (f :+: g) where
     atomicTest (Inl x) = atomicTest x
     atomicTest (Inr y) = atomicTest y
-instance (Data p, Data e) => AtomicTester (DomainItem (Action p e)) where
-    atomicTest (DomainItem a) = (getName a, True)
+instance (Data p, Data e) => AtomicTester (DomainItem (HAction p e)) where
+    atomicTest (DomainItem a) = 
+        maybe (getName a, True) (\th -> (taskName th, True)) $
+        getTaskHead a
 instance (Data p) => AtomicTester (DomainItem (Method p)) where
-    atomicTest (DomainItem m) = (taskName $ getTaskHead m, and $ map (null . tasks) $ getBranches m)
+    atomicTest (DomainItem m) =
+        let t = getTaskHead m in
+        maybe ("", False) (\th -> (taskName th, and $ map (null . tasks) $ getBranches m)) t
 
 atomicTester :: (AtomicTester f) => [Expr f] -> (String -> Bool)
 atomicTester tl =
@@ -115,25 +122,13 @@ atomicTester tl =
     \x -> not $ Set.member x atomicSet
 
 -- Domain Modification.  
--- The first position is for list which actions need to be controlled
--- The second position is the list of generated actions
 data DomainMod c = 
-    DomainMod { newPredicates :: [Expr (Atomic TypedVarExpr)], controlledActions::[String], modActions::[c] }
+    DomainMod { newPredicates :: [Expr (Atomic TypedVarExpr)], modActions::[c] }
     | DomainFailure String
-instance (PDDLDoc f) => Show (DomainMod (Expr f)) where
-    show (DomainFailure txt) = show $
-        parens $ 
-        text "DomainTranslationFailure:" <+> text txt
-    show (DomainMod pl cl el) = show $ parens $ sep [
-        text "DomainModification",
-        parens $ sep $ text "NewPredicates" : map (\ (In x) -> pddlDoc x) pl,
-        parens $ sep $ text "ControlledActions" : map text cl,
-        parens $ sep $ text "Actions" : map (\ (In a) -> pddlDoc a) el]
 
 addDMods dml =
    DomainMod
     (concatMap newPredicates dml)
-    (concatMap controlledActions dml) 
     (concatMap modActions dml)
 
 
@@ -147,60 +142,55 @@ instance (TaskCollector f, TaskCollector g) => TaskCollector (f :+: g) where
     collectTask (Inl x) = collectTask x
     collectTask (Inr y) = collectTask y
 
-instance TaskCollector (DomainItem (Action p e)) where
-    collectTask _ = Nothing
+instance (Data p, Data e) => TaskCollector (DomainItem (HAction p e)) where 
+    collectTask (DomainItem a)
+        | isNothing (getTaskHead a) = Nothing
+        | otherwise = let th = fromJust $ getTaskHead a in Just $ startP
+        (taskName th)
+        [ eVar ('v' : show n) :: TypedVarExpr | n <- [1 .. (length $ taskArgs th)] ]
+    
 
 instance Data p => TaskCollector (DomainItem (Method p)) where
-    collectTask (DomainItem m) = Just $ startP
-        (taskName $ getTaskHead m)
-        [ eVar ('v' : show n) :: TypedVarExpr | n <- [1 .. (length $ taskArgs $ getTaskHead m)] ]
+    collectTask (DomainItem m)
+        | isNothing (getTaskHead m) = Nothing
+        | otherwise = let th = fromJust $ getTaskHead m in Just $ startP
+        (taskName th)
+        [ eVar ('v' : show n) :: TypedVarExpr | n <- [1 .. (length $ taskArgs th)] ]
 
--- 
--- Item control transformation
--- 
-class Functor f => ItemController f where
-    controlIfMatch :: 
-        (String -> Bool) -> 
-        f (Maybe (Expr (Atomic TypedVarExpr)), Expr f) -> 
-        (Maybe (Expr (Atomic TypedVarExpr)), Expr f)
-
-instance 
-    (Data (Expr p), Data (Expr e),
-    (:<:) StdAtomicType p,
-    (:<:) StdAtomicType e,
-    (:<:) And p,
-    (:<:) And e,
-    (:<:) Not e,
-    HasName a,
-    HasParameters (TypedVarExpr) a,
-    HasPrecondition (Expr p) a,
-    HasEffect (Expr e) a) => ItemController (DomainItem a) where
-    controlIfMatch matcher (DomainItem a)
-        | not (matcher $ getName a) = (Nothing, domainItem a)
-        | otherwise =
-        let
-            name = getName a
-            vars = (varIds $ map removeType $ getParameters a) :: [TermExpr]
-            controlPre = case (getPrecondition a) of
-                Just pre -> eAnd [startP name vars, pre]
-                Nothing -> startP name vars
-            controlEffect = case (getEffect a) of
-                Just eff -> eAnd [ eNot $ startP name vars, eff ]
-                Nothing -> eNot $ startP name vars
-        in
-        (Just $ startP name $ getParameters a, 
-         domainItem $ 
-         setPrecondition (Just controlPre) $
-         setEffect (Just controlEffect) a)
-
+--
+-- Item Translation
+--
 class Functor f => ItemTranslator a c f where
     translateItem :: a -> f (DomainMod c) -> DomainMod c
 instance (ItemTranslator a c f, ItemTranslator a c g) => ItemTranslator a c (f :+: g) where
     translateItem a (Inl x) = translateItem a x
     translateItem a (Inr y) = translateItem a y
 
-instance (:<:) (DomainItem (Action p e)) c => ItemTranslator a (Expr c) (DomainItem (Action p e)) where
-    translateItem _ (DomainItem a) = DomainMod [] [] [domainItem a]
+instance 
+    ((:<:) (DomainItem (Action (Expr p) (Expr e))) c, 
+     (:<:) And p,
+     (:<:) And e,
+     (:<:) Not e,
+     (:<:) StdAtomicType p,
+     (:<:) StdAtomicType e,
+     Data (Expr p), 
+     Data (Expr e)) => 
+    ItemTranslator a (Expr c) (DomainItem (HAction (Expr p) (Expr e))) where
+    translateItem _ (DomainItem a@(HAction rName rParams rTask rPrecond rEffect))
+        | isNothing (getTaskHead a) = 
+            DomainMod [] [domainItem $ Action rName rParams rPrecond rEffect]
+        | otherwise =
+        let
+            th = fromJust $ getTaskHead a
+            pre = Just $ eAnd $ catMaybes [
+                Just $ startP (taskName th) (taskArgs th),
+                getPrecondition a]
+            eff = Just $ eAnd $ catMaybes [
+                Just $ eNot $ startP (taskName th) (taskArgs th),
+                getEffect a]
+            newA = action (getName a) (getParameters a) pre eff
+        in
+        DomainMod [] [domainItem newA]
 
 type MethodTransConfig a = (String -> Bool, [TypedVarExpr], [Expr Var], [Expr Var], a)
 
@@ -224,16 +214,13 @@ instance forall p e f .
     where
     translateItem desc@(isAtomic, stackParams, oVars, nVars, template) (DomainItem m) =
         let
-            controlled = 
-                (map taskName $ concatMap tasks (getBranches m)) 
-            prefix = (taskName $ getTaskHead m) ++ "_" ++ getName m
-            branchControlP :: Expr p
-            branchControlP = startP (taskName $ getTaskHead m) (taskArgs $ getTaskHead m)
+            prefix = 
+                --maybe "" (\th -> taskName th ++ "_") (getTaskHead m) ++ 
+                getName m
             mbranches :: [Branch (Expr p)]
             mbranches = case (getBranches m) of
                 [] -> [emptyBranch]
                 bl -> bl
-            atomicity = isAtomic $ taskName $ getTaskHead m
             preconds :: [[Expr p]]
             preconds =
                 map (\ pl -> catMaybes $ getPrecondition m : pl) $
@@ -268,20 +255,20 @@ translateBranch :: forall p e f .
      (:<:) (DomainItem (Action (Expr p) (Expr e))) f) =>
     MethodTransConfig (Expr e) -> -- Method Translation Config
     String -> -- Branch prefix
-    Expr (StdAtomicType) -> -- Task
+    StdTaskHead -> -- Task
     [TypedVarExpr] -> -- Method parameters, should be disjoint from branch params
     [Expr p] -> -- list of preconditions for branch to execute (not including branch precond)
     Branch (Expr p) -> -- Actual branch
     DomainMod (Expr f) -- resulting domain modifications
 translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task methodParams precondList branch
-    | null (tasks branch) && (isAtomic $ taskName task) = DomainMod [] [] [
+    | null (tasks branch) && (maybe False (isAtomic . taskName) task) = DomainMod [] [
         domainItem $ action 
             (prefix ++ "_" ++ branchName branch)
             (methodParams ++ bparameters branch)
             (Just $ eAnd $ 
-                startP (taskName task) (taskArgs task) :
+                maybeToList (startTaskH task) ++
                 precondList ++ (maybeToList $ bprecondition branch))
-            (Just $ eNot $ startP (taskName task) (taskArgs task) :: Maybe (Expr e))]
+            (startTaskH task >>= (\x -> return $ eNot x) :: Maybe (Expr e))]
     | otherwise =
     let
         -- Number of sub tasks
@@ -297,12 +284,11 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
         params2 = params1 ++ drop (length oVars) stackParams
         pvars = varIds $ map removeType params1 :: [TermExpr]
         controlPs :: [Expr p]
-        controlPs = startP (taskName task) (taskArgs task) :
+        controlPs = maybeToList (startTaskH task) ++ 
             tail [startP bname pvars | bname <- bnames ]
         controlEs :: [Expr e]
-        controlEs = startP (taskName task) (taskArgs task) : 
+        controlEs = maybeToList (startTaskH task) ++
             tail [ startP bname pvars | bname <- bnames ]
-        controlledNames = [taskName t | t <- tasks branch, isAtomic (taskName t)]
         newPreds = [ startP name params1 | name <- tail bnames ]
         -- Which sub tasks are atomic.  Always treat last task as atomic
         atomicities = if null (tasks branch) then [] else
@@ -347,7 +333,7 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
             | preconds <- allPreconds
             | effs <- allEffects ]
     in
-    DomainMod newPreds controlledNames actions
+    DomainMod newPreds actions
     where
         startCondition :: Expr StdAtomicType -> [Expr p]
         startCondition t
@@ -381,11 +367,9 @@ translateDomain stackArity domain template =
             splitAt stackArity [eVar ("v" ++ show n) :: Expr Var | n <- [1.. (2*stackArity)]]
         stackArgs = [ eTyped v stackType :: TypedVarExpr
             | v <- oVars ++ nVars ] :: [TypedVarExpr]
-        DomainMod newPreds controlled domActions = addDMods $
+        DomainMod newPreds domActions = addDMods $
             map (foldExpr $ translateItem (isAtomic, stackArgs, oVars, nVars, template)) $
             items domain
-        (startPreds, cActions) = unzip $
-            map (foldExpr (controlIfMatch (\x -> x `elem` controlled))) domActions
         taskPreds = nub $ mapMaybe (foldExpr collectTask) $ items domain
     in
     Domain {
@@ -400,9 +384,8 @@ translateDomain stackArity domain template =
              nextP (stackArgs !! 0) (stackArgs !! 1),
              sameP (stackArgs !! 0) (stackArgs !! 1)] ++
              taskPreds ++
-             catMaybes startPreds ++
              newPreds,
-        items = cActions
+        items = domActions
     }
 
 translateProblem numDigits stackArity problem =

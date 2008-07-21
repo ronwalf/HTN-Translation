@@ -5,15 +5,16 @@
 module HTNTranslation.HTNPDDL (
     module Planning.PDDL.Representation,
     StandardHTNDomain,
-    Method, StandardMethod,
-    TaskHead, getTaskHead, setTaskHead,
-    Branches, getBranches, setBranches,
+    Method(..), StandardMethod,
+    HAction(..), StandardHAction,
+    TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
+    Branches(..), HasBranches, getBranches, setBranches,
     Branch(..), emptyBranch,
-    TaskList, taskName, taskArgs,
+    TaskList, taskName, taskArgs, StdTaskHead,
     parseHTNPDDL
 ) where
 
-import Data.Generics (Data, Typeable, Typeable1)
+import Data.Generics (Data, Typeable, Typeable1, Typeable2)
 import Data.Maybe
 import Text.ParserCombinators.Parsec
 import qualified Text.ParserCombinators.Parsec.Token as T
@@ -22,8 +23,8 @@ import Text.PrettyPrint
 import Planning.PDDL.Representation
 import Planning.PDDL.Parser
 
-type StandardHTNDomain = Domain (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
-deriving instance Data (Expr (DomainItem StandardAction :+: DomainItem StandardMethod))
+type StandardHTNDomain = Domain (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
+deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
 type TaskList = [Expr (StdAtomicType)]
 taskName (In (Atomic p _)) = p
@@ -79,13 +80,15 @@ instance PDDLDoc c => PDDLDoc (Method (Expr c)) where
                 (text ":tasks" <+> sep [pddlDoc t | In t <- tasks br])
 -}
 
-data TaskHead f = TaskHead (Expr (Atomic f)) deriving (Data, Eq, Typeable)
+data TaskHead f = TaskHead f deriving (Data, Eq, Typeable)
 unTaskHead (TaskHead h) = h
 class (Data a, Data f) => HasTaskHead f a | a -> f where
-    getTaskHead :: a -> Expr (Atomic f)
+    getTaskHead :: a -> f
     getTaskHead = unTaskHead . fromJust . gfind
-    setTaskHead :: Expr (Atomic f) -> a -> a
+    setTaskHead :: f -> a -> a
     setTaskHead h r = fromJust $ greplace r (TaskHead h)
+
+type StdTaskHead = Maybe (Expr (Atomic TermExpr))
 
 data Branches c = Branches [Branch c] deriving (Data, Eq)
 deriving instance Typeable1 Branches
@@ -99,7 +102,7 @@ class (Data a, Data c) => HasBranches c a | a -> c where
 data Method c = Method
     Name
     (Parameters TypedVarExpr)
-    (TaskHead TermExpr)
+    (TaskHead StdTaskHead)
     (Precondition c)
     (Branches c)
     deriving (Data, Eq)
@@ -108,7 +111,7 @@ deriving instance Typeable1 Method
 
 instance Data c => HasName (Method c)
 instance Data c => HasParameters TypedVarExpr (Method c)
-instance Data c => HasTaskHead TermExpr (Method c)
+instance Data c => HasTaskHead StdTaskHead (Method c)
 instance Data c => HasPrecondition c (Method c)
 instance Data c => HasBranches c (Method c)
 
@@ -122,7 +125,7 @@ instance (Data (Expr c), PDDLDoc c) => PDDLDoc (DomainItem (Method (Expr c))) wh
     pddlDoc (DomainItem m) = parens $ sep [
         text ":method" <+> text (getName m),
         text ":parameters" <+> parens (sep $ map pddlExprDoc $ getParameters m),
-        text ":task" <+> pddlExprDoc (getTaskHead m),
+        docMaybe ":task" $ getTaskHead m,
         docMaybe ":precondition" $ getPrecondition m,
         sep [text ":branches", parens ( sep $ map branchDoc $ getBranches m )]]
         where
@@ -135,6 +138,42 @@ instance (Data (Expr c), PDDLDoc c) => PDDLDoc (DomainItem (Method (Expr c))) wh
         
 
 type StandardMethod = Method GoalExpr
+
+data HAction p e = HAction
+    Name
+    (Parameters TypedVarExpr)
+    (TaskHead StdTaskHead)
+    (Precondition p)
+    (Effect e)
+    deriving (Data, Eq)
+deriving instance Typeable2 HAction
+
+
+instance (Data p, Data e) => HasName (HAction p e)
+instance (Data p, Data e) => HasParameters TypedVarExpr (HAction p e)
+instance (Data p, Data e) => HasTaskHead StdTaskHead (HAction p e)
+instance (Data p, Data e) => HasPrecondition p (HAction p e)
+instance (Data p, Data e) => HasEffect e (HAction p e)
+
+defaultHAction = HAction undefined 
+    (Parameters [])
+    (TaskHead Nothing)
+    (Precondition Nothing)
+    (Effect Nothing)
+
+instance (Data (Expr p), Data (Expr e), PDDLDoc p, PDDLDoc e) => 
+    PDDLDoc (DomainItem (HAction (Expr p) (Expr e))) where
+    pddlDoc (DomainItem a) = parens $ sep [
+        text ":action" <+> text (getName a),
+        text ":parameters" <+> parens (sep $ map pddlExprDoc $ getParameters a),
+        docMaybe ":task" $ getTaskHead a,
+        docMaybe ":precondition" $ getPrecondition a,
+        docMaybe ":effect" $ getEffect a]
+                
+        
+
+type StandardHAction = HAction GoalExpr GoalExpr
+
 
             
 htnLanguage = pddlLanguage {
@@ -149,12 +188,30 @@ htnParser = let
         lex = htnLexer 
         condParser = conditionParser lex :: CharParser StandardHTNDomain GoalExpr
         actions =
-            (actionParser lex condParser)
+            (hActionParser lex condParser)
             <|>
             (methodParser lex condParser :: CharParser StandardHTNDomain ())
     in
     domainParser lex (domainInfoParser lex (condParser)) actions
 
+hActionParser lex condParser = do
+    let infoParser = hActionInfoParser lex condParser
+    try $ T.reserved lex ":action"
+    name <- T.identifier lex
+    updates <- many infoParser
+    let action = foldl (\ a t -> t a) (setName name defaultHAction) updates
+    updateState (\d -> d { items = domainItem action : items d })
+
+hActionInfoParser lex condParser =
+    paramParser lex
+    <|>
+    taskHeadParser lex
+    <|>
+    precondParser lex condParser
+    <|>
+    effectParser lex condParser
+
+    
 
 methodParser :: forall f a .
     ((:<:) (DomainItem (Method f)) a, Data f, Data (Expr a)) => 
@@ -174,15 +231,17 @@ methodInfoParser lex condParser =
     <|>
     precondParser lex condParser
     <|>
-    (do
-        try $ T.reserved lex ":task"
-        task <- T.parens lex $ atomicFormulaParser lex (termParser lex)
-        return $ setTaskHead (task :: Expr StdAtomicType))
+    taskHeadParser lex
     <|>
     (do
         try $ T.reserved lex ":branches"
         bl <- T.parens lex $ many $ branchParser lex condParser
         return $ setBranches bl)
+
+taskHeadParser lex = do
+    try $ T.reserved lex ":task"
+    task <- maybeParser lex $ atomicFormulaParser lex (termParser lex)
+    return $ setTaskHead task
 
 branchParser lex condParser = T.parens lex $ do
     T.reserved lex ":branch"
