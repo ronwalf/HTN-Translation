@@ -1,3 +1,6 @@
+{-# OPTIONS
+ -fcontext-stack=40
+ #-}
 module Main where
 
 import System.Environment
@@ -12,7 +15,7 @@ processDomain arity domfile = do
     where
         printResult (Left err) = print err
         printResult (Right dom) = do
-            let domain = translateDomain arity dom (undefined :: GoalExpr) :: StandardDomain
+            let domain = translateDomain arity dom (undefined :: EffectDExpr) :: PDDLDomain 
             print domain
 
 main = do

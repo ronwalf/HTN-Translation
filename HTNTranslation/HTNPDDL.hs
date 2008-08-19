@@ -1,9 +1,10 @@
 {-# OPTIONS
  -fglasgow-exts
+ -fcontext-stack=40
  -fallow-overlapping-instances
  #-}
 module HTNTranslation.HTNPDDL (
-    module Planning.PDDL.Representation,
+    module Planning.PDDL.PDDL3_0,
     StandardHTNDomain,
     Method(..), StandardMethod,
     HAction(..), StandardHAction,
@@ -20,13 +21,13 @@ import Text.ParserCombinators.Parsec
 import qualified Text.ParserCombinators.Parsec.Token as T
 import Text.PrettyPrint
 
-import Planning.PDDL.Representation
+import Planning.PDDL.PDDL3_0
 import Planning.PDDL.Parser
 
-type StandardHTNDomain = Domain (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
-deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
+type StandardHTNDomain = Domain ConstraintGDExpr (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
+--deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
-type TaskList = [Expr (StdAtomicType)]
+type TaskList = [Expr PDDLAtom]
 taskName (In (Atomic p _)) = p
 taskArgs (In (Atomic _ al)) = al
 
@@ -137,7 +138,7 @@ instance (Data (Expr c), PDDLDoc c) => PDDLDoc (DomainItem (Method (Expr c))) wh
                 
         
 
-type StandardMethod = Method GoalExpr
+type StandardMethod = Method PreferenceGDExpr
 
 data HAction p e = HAction
     Name
@@ -172,7 +173,7 @@ instance (Data (Expr p), Data (Expr e), PDDLDoc p, PDDLDoc e) =>
                 
         
 
-type StandardHAction = HAction GoalExpr GoalExpr
+type StandardHAction = HAction PreferenceGDExpr EffectDExpr
 
 
             
@@ -186,45 +187,49 @@ htnLexer = T.makeTokenParser htnLanguage
 htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
 htnParser = let 
         lex = htnLexer 
-        condParser = conditionParser lex :: CharParser StandardHTNDomain GoalExpr
+        condParser = prefGDParser lex 
+        effParser = effectDParser lex 
+        constraintP = constraintGDParser lex
         actions =
-            (hActionParser lex condParser)
+            (hActionParser lex condParser effParser)
             <|>
             (methodParser lex condParser :: CharParser StandardHTNDomain ())
     in
-    domainParser lex (domainInfoParser lex (condParser)) actions
+    domainParser lex (domainInfoParser lex constraintP) actions
 
-hActionParser lex condParser = do
-    let infoParser = hActionInfoParser lex condParser
+hActionParser lex condParser effParser = do
+    let infoParser = hActionInfoParser lex condParser effParser
     try $ T.reserved lex ":action"
     name <- T.identifier lex
     updates <- many infoParser
     let action = foldl (\ a t -> t a) (setName name defaultHAction) updates
-    updateState (\d -> d { items = domainItem action : items d })
+    updateState (\d -> setItems (domainItem action : getItems d) d)
 
-hActionInfoParser lex condParser =
+hActionInfoParser lex condParser effParser =
     paramParser lex
     <|>
     taskHeadParser lex
     <|>
     precondParser lex condParser
     <|>
-    effectParser lex condParser
+    effectParser lex effParser
 
     
 
-methodParser :: forall f a .
-    ((:<:) (DomainItem (Method f)) a, Data f, Data (Expr a)) => 
-    T.TokenParser (Domain (Expr a)) -> 
-    CharParser (Domain (Expr a)) f -> 
-    CharParser (Domain (Expr a)) ()
+methodParser :: forall f a b .
+    ((:<:) (DomainItem (Method f)) b, Data f, Data a, Data (Expr b)) => 
+    T.TokenParser (Domain a (Expr b)) -> 
+    CharParser (Domain a (Expr b)) f -> 
+    CharParser (Domain a (Expr b)) ()
 methodParser lex condParser = do
-    let infoParser = methodInfoParser lex condParser :: CharParser (Domain (Expr a)) (Method f -> Method f)
+    let 
+        infoParser :: CharParser (Domain a (Expr b)) (Method f -> Method f)
+        infoParser = methodInfoParser lex condParser 
     try $ T.reserved lex ":method"
     name <- T.identifier lex
     updates <- many infoParser
     let method = foldl (\a t -> t a) (setName name defaultMethod) updates
-    updateState (\d -> d { items = domainItem method : items d })
+    updateState (\d -> setItems (domainItem method : getItems d) d)
 
 methodInfoParser lex condParser =
     paramParser lex
@@ -240,7 +245,7 @@ methodInfoParser lex condParser =
 
 taskHeadParser lex = do
     try $ T.reserved lex ":task"
-    task <- maybeParser lex $ atomicFormulaParser lex (termParser lex)
+    task <- maybeParser lex $ atomicParser lex (termParser lex)
     return $ setTaskHead task
 
 branchParser lex condParser = T.parens lex $ do

@@ -171,8 +171,8 @@ instance
      (:<:) And p,
      (:<:) And e,
      (:<:) Not e,
-     (:<:) StdAtomicType p,
-     (:<:) StdAtomicType e,
+     (:<:) PDDLAtom p,
+     (:<:) PDDLAtom e,
      Data (Expr p), 
      Data (Expr e)) => 
     ItemTranslator a (Expr c) (DomainItem (HAction (Expr p) (Expr e))) where
@@ -199,10 +199,10 @@ instance forall p e f .
      (:<:) Or p, 
      (:<:) Not p, 
      (:<:) (ForAll TypedVarExpr) p, 
-     (:<:) StdAtomicType p,
+     (:<:) PDDLAtom p,
      (:<:) And e,
      (:<:) Not e,
-     (:<:) StdAtomicType e,
+     (:<:) PDDLAtom e,
      (:<:) (DomainItem (Action (Expr p) (Expr e))) f,
      Data (Expr p),
      Data (Expr e)
@@ -245,13 +245,13 @@ instance forall p e f .
 translateBranch :: forall p e f .
     (
      (:<:) And p, 
-     (:<:) StdAtomicType p, 
+     (:<:) PDDLAtom p, 
      (:<:) Not p, 
      (:<:) Or p,
      (:<:) (ForAll TypedVarExpr) p,
      (:<:) And e,
      (:<:) Not e,
-     (:<:) StdAtomicType e,
+     (:<:) PDDLAtom e,
      (:<:) (DomainItem (Action (Expr p) (Expr e))) f) =>
     MethodTransConfig (Expr e) -> -- Method Translation Config
     String -> -- Branch prefix
@@ -335,18 +335,18 @@ translateBranch (isAtomic, stackParams, oVars, nVars, template) prefix task meth
     in
     DomainMod newPreds actions
     where
-        startCondition :: Expr StdAtomicType -> [Expr p]
+        startCondition :: Expr PDDLAtom -> [Expr p]
         startCondition t
             | isAtomic (taskName t) = []
             | otherwise = [stackCondition (varIds oVars :: [TermExpr]) (varIds nVars :: [TermExpr])]
-        startEffect :: Bool -> Expr StdAtomicType -> [Expr e]
+        startEffect :: Bool -> Expr PDDLAtom -> [Expr e]
         startEffect bumpStack t
             | bumpStack = [startP (taskName t) (taskArgs t)]
             | otherwise = [ 
                 startP (taskName t) (taskArgs t),
                 eNot $ stackTop (varIds oVars :: [TermExpr]),
                 stackTop (varIds nVars :: [TermExpr])]
-        finishCondition :: Expr StdAtomicType -> Expr p
+        finishCondition :: Expr PDDLAtom -> Expr p
         finishCondition t
             | isAtomic (taskName t) = eNot $ startP (taskName t) (taskArgs t)
             | otherwise = stackTop (varIds oVars :: [TermExpr])
@@ -362,32 +362,30 @@ eUnique f el prefix =
 
 translateDomain stackArity domain template =
     let
-        isAtomic = atomicTester $ items domain
+        isAtomic = atomicTester $ getItems domain
         (oVars, nVars) = 
             splitAt stackArity [eVar ("v" ++ show n) :: Expr Var | n <- [1.. (2*stackArity)]]
         stackArgs = [ eTyped v stackType :: TypedVarExpr
             | v <- oVars ++ nVars ] :: [TypedVarExpr]
         DomainMod newPreds domActions = addDMods $
             map (foldExpr $ translateItem (isAtomic, stackArgs, oVars, nVars, template)) $
-            items domain
-        taskPreds = nub $ mapMaybe (foldExpr collectTask) $ items domain
+            getItems domain
+        taskPreds = nub $ mapMaybe (foldExpr collectTask) $ getItems domain
     in
-    Domain {
-        domainName = domainName domain,
-        requirements = requirements domain,
-        types = types domain ++ [eConst "STACKITEM" :: TypedConstExpr],
-        constants = constants domain,
-        predicates = predicates domain ++
-            [stackTop (take stackArity stackArgs), 
-             beginP (stackArgs !! 0),
-             endP (stackArgs !! 0),
-             nextP (stackArgs !! 0) (stackArgs !! 1),
-             sameP (stackArgs !! 0) (stackArgs !! 1)] ++
-             taskPreds ++
-             newPreds,
-        items = domActions
-    }
-
+    setName (getName domain) $
+    setRequirements (getRequirements domain) $
+    setTypes (getTypes domain ++ [eConst "STACKITEM" :: TypedConstExpr]) $
+    setConstants (getConstants domain) $
+    setPredicates (getPredicates domain ++
+        [stackTop (take stackArity stackArgs), 
+        beginP (stackArgs !! 0),
+        endP (stackArgs !! 0),
+        nextP (stackArgs !! 0) (stackArgs !! 1),
+        sameP (stackArgs !! 0) (stackArgs !! 1)] ++
+        taskPreds ++
+        newPreds) $
+    setItems domActions emptyDomain 
+       
 translateProblem numDigits stackArity problem =
     let
         stackItems = [ eConst $ "stackDigit" ++ show n | n <- [1..numDigits] ] :: [Expr Const]
@@ -398,9 +396,7 @@ translateProblem numDigits stackArity problem =
             [sameP i i | i <- stackItems] ++
             [nextP i1 i2 | i1 <- stackItems | i2 <- tail stackItems]
     in
-    problem {
-        objects = objects problem ++ 
-            [eTyped i stackType | i <- stackItems],
-        initial = initial problem ++ stackRel
-    }
+    setConstants (getConstants problem ++
+        [eTyped i stackType | i <- stackItems]) $
+    setInitial ( getInitial problem ++ stackRel ) problem
         
