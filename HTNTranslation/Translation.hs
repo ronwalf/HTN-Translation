@@ -13,6 +13,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Text.PrettyPrint
 
+import Planning.Util
 import Planning.PDDL.Representation
 import HTNTranslation.HTNPDDL
 
@@ -88,10 +89,10 @@ stackCondition oldVars newVars =
             [nextP (fst var) (snd var)] ++
             [sameP ov nv | (ov, nv) <- postvars]
 
-incrementStack :: ((:<:) And g, (:<:) (Atomic (Expr f)) g, (:<:) Not g) =>
+incrementStack :: ((:<:) And g, (:<:) (Atomic (Expr f)) g, (:<:) Not g, NNF g g) =>
     [Expr f] -> [Expr f] -> Expr g
 incrementStack oldVars newVars =
-    eAnd [ eNot $ stackTop oldVars, stackTop newVars ]
+    eAnd [ nnf $ eNot $ stackTop oldVars, stackTop newVars ]
 
 
 -- Atomic Action collection
@@ -173,6 +174,7 @@ instance
      (:<:) Not e,
      (:<:) PDDLAtom p,
      (:<:) PDDLAtom e,
+     NNF p p,
      Data (Expr p), 
      Data (Expr e)) => 
     ItemTranslator a (Expr c) (DomainItem (HAction (Expr p) (Expr e))) where
@@ -204,6 +206,7 @@ instance forall p e f .
      (:<:) Not e,
      (:<:) PDDLAtom e,
      (:<:) (DomainItem (Action (Expr p) (Expr e))) f,
+     NNF p p,
      Data (Expr p),
      Data (Expr e)
     ) =>
@@ -227,7 +230,7 @@ instance forall p e f .
                 (\pls -> [ bprecondition b : pl | b <- mbranches | pl <- pls]) $
                 inits $
                 map (\b -> case (bprecondition b) of
-                    Just pre -> Just $ eForAll (bparameters b) $ eNot $ pre
+                    Just pre -> Just $ eForAll (bparameters b) $ nnf $ eNot $ pre
                     Nothing -> Nothing) $
                 mbranches -- :: [[Expr c]]
         in
@@ -388,7 +391,9 @@ translateDomain stackArity domain template =
        
 translateProblem numDigits stackArity problem =
     let
-        stackItems = [ eConst $ "stackDigit" ++ show n | n <- [1..numDigits] ] :: [Expr Const]
+        stackStrings = ["stackDigit" ++ show n | n <- [1..numDigits]]
+        stackItems :: [ConstTermExpr]
+        stackItems = map eConst stackStrings
         stackRel =
             stackTop (replicate (stackArity - 1) (stackItems !! 0) ++ [stackItems !! 1]) :
             beginP (head stackItems) :
@@ -397,6 +402,6 @@ translateProblem numDigits stackArity problem =
             [nextP i1 i2 | i1 <- stackItems | i2 <- tail stackItems]
     in
     setConstants (getConstants problem ++
-        [eTyped i stackType | i <- stackItems]) $
+        [eTyped (eConst i :: Expr Const) stackType | i <- stackStrings]) $
     setInitial ( getInitial problem ++ stackRel ) problem
         
