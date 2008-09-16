@@ -1,0 +1,113 @@
+(define (domain medical)
+
+ (:types PERSON ILLNESS)
+ (:predicates 
+    (ndead ?p - PERSON)
+    (ill ?p - PERSON ?i - ILLNESS)
+    (ordered ?x)
+    (first ?a)
+    (next ?a ?b)
+    (last ?a)
+  )  
+ (:constants i0 - ILLNESS)
+
+(:action stain
+   :task (stain ?p ?i)
+   :parameters (?p - PERSON ?i - ILLNESS)
+   :precondition (ndead ?p)
+   :observe (and (ill ?p ?i) (not (ill ?p ?i))))
+
+ (:action medicate
+  :task (medicate ?p ?i)
+  :parameters (?p - PERSON ?i - ILLNESS)
+  :precondition (and (ndead ?p) (not (ill ?p i0)))
+  :effect (and (when (ill ?p ?i) (ill ?p i0))
+               (when (not (ill ?p ?i)) (not (ndead ?p)))))
+
+ (:action order
+  :task (order ?a ?b)
+  :parameters (?a ?b)
+  :effect (and (ordered ?a) (ordered ?b) (next ?a ?b)))
+
+ (:action mark-first
+  :task (mark-first ?a)
+  :parameters (?a)
+  :effect (first ?a))
+ 
+ (:action mark-last
+  :task (mark-last ?a)
+  :parameters (?a)
+  :effect (last ?a))
+
+
+ (:method order-ills
+  :task (order-ills ?i)
+  :parameters (?i - ILLNESS)
+  :branches (
+   (:branch work
+    :parameters (?i2 - ILLNESS)
+    :precondition (not (ordered ?i2))
+    :tasks ((order ?i ?i2) (order-ills ?i2)))
+   (:branch done
+    :tasks ((last ?i)))))
+
+ (:method order-people
+  :task (order-people ?p)
+  :parameters (?p - PERSON)
+  :branches (
+   (:branch work
+    :parameters (?p2 - PERSON)
+    :precondition (not (ordered ?p2))
+    :tasks ((order ?p ?p2) (order-people ?p2)))
+   (:branch done)))
+ 
+ (:method test-ill
+  :task (test-ill ?p ?i)
+  :parameters (?p - PERSON ?i - ILLNESS)
+  :branches ((:branch work :tasks ((stain ?p ?i) (treat-ill ?p ?i)))))
+
+ (:method treat-ok
+  :task (treat-ill ?p ?i)
+  :parameters (?p - PERSON ?i - ILLNESS)
+  :precondition (not (ill ?p ?i))
+  :branches (
+   (:branch next
+    :parameters (?i2 - ILLNESS)
+    :precondition (next ?i ?i2)
+    :tasks ((test-ill ?p ?i2)))
+   (:branch done)))
+
+ (:method treat-ill
+  :task (treat-ills ?p ?i)
+  :parameters (?p - PERSON ?i - ILLNESS ?i2 - ILLNESS)
+  :precondition (ill ?p ?i)
+  :branches (
+   (:branch work
+    :parameters (?i2 - ILLNESS)
+    :precondition (next ?i ?i2)
+    :tasks ((treat ?p ?i) (test-ill ?p ?i2)))
+   (:branch last_ill
+    :tasks ((treat ?p ?i)))))
+
+ (:method treat-all
+  :task (treat-all ?p)
+  :parameters (?p - PERSON)
+  :branches (
+   (:branch work
+    :parameters (?p2 - PERSON ?i - ILLNESS)
+    :precondition (and (next ?p ?p2) (next i0 ?i))
+    :tasks ((stain ?p ?i) (treat-ills ?p ?i) (treat-all ?p2)))
+   (:branch done
+     :parameters (?i - ILLNESS)
+     :precondition (next i0 ?i)
+     :tasks ((stain ?p ?i) (treat-ills ?p i0)))))
+
+ (:method achieve-goals
+  :task (achieve-goals)
+  :branches (
+   (:branch work
+    :parameters (?p - PERSON)
+    :tasks ((mark-first i0) (order-ills i0) (order-people ?p) (treat-all ?p)))))
+)
+
+
