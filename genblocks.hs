@@ -17,7 +17,7 @@ import HTNTranslation.Translation
 
 -- Constants for adding stack predicates and items.
 stackArity = 1
-stackSize = 6
+stackSize = 3
 
 newRandomList range = do
     g <- newStdGen
