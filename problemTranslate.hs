@@ -103,16 +103,16 @@ processProblem items arity domfile = do
     where
         printResult (Left err) = print err
         printResult (Right dom) = do
+            let translated = translateProblem items arity dom
             let atomicGoals =
                     maybe [] (findAtomics . renameAtomics ("goal-"++)) (getGoal dom) 
                     :: [Expr PDDLAtom]
             let initGoals =
-                    (eAtomic "achieve-goals" ([] :: [ConstTermExpr])) :
+                    (eAtomic "start_achieve-goals" ([] :: [ConstTermExpr])) :
                     mapMaybe 
                     (constAtomic (undefined :: ConstTermExpr))
                     atomicGoals :: [InitLiteralExpr]
-            let problem = setInitial (initGoals ++ getInitial dom) $
-                    translateProblem items arity dom
+            let problem = setInitial (initGoals ++ getInitial translated) translated
             print problem 
 
 main = do
