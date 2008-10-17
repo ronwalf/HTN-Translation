@@ -1,0 +1,80 @@
+(define (domain towers)
+ (:requirements :strips :disjunctive-preconditions)
+ (:types OBJ RING - OBJ TOWER - OBJ)
+ (:predicates
+  (on ?r - RING ?o - OBJ)
+  (towerTop ?o - OBJ ?t - TOWER)
+  (smallerThan ?r - RING ?o - OBJ))
+
+ (:method shiftTower
+  ; shift tower from ?t1 to ?t3 using ?t2
+  :parameters (?r - RING ?t1 - TOWER ?t2 - TOWER ?t3 - TOWER)
+  :task (shiftTower ?t1 ?t2 ?t3)
+  :precondition (towerTop ?r ?t1)
+  :branches((:branch d :tasks ((selectDirection ?r ?t1 ?t2 ?t3)))))
+
+ (:method selectDirection
+  :parameters (?r - RING ?t1 - TOWER ?t2 - TOWER ?t3 - TOWER)
+  :task (selectDirection ?r ?t1 ?t2 ?t3)
+  :branches (
+   (:branch set
+    :precondition (on ?r ?t1)
+    :tasks ((rotateTower ?t1 ?t3 ?t2)))
+   (:branch find
+    :parameters (?r1 - RING)
+    :precondition (on ?r ?r1)
+    :tasks ((selectDirection ?r1 ?t1 ?t3 ?t2)))))
+  
+ (:method rotateTower
+  ; rotate tower from ?t1 to ?t2 to ?t3
+  :parameters (?t1 - TOWER ?t2 - TOWER ?t3 - TOWER)
+  :task (rotateTower ?t1 ?t2 ?t3)
+  :branches (
+   (:branch working
+    :tasks (
+     (move ?t1 ?t2) ; smallest
+     (exchange ?t1 ?t3)
+     (rotateTower ?t2 ?t3 ?t1)))))
+
+ ;(:method exchangesalute
+ ; :parameters (?t1 - TOWER ?t2 - TOWER)
+ ; :task (exchange ?t1 ?t2)
+ ; :precondition (and (towerTop ?t1 ?t1) (towerTop ?t2 ?t2)))
+
+ (:method exchangelr
+  :parameters (?t1 - TOWER ?t2 - TOWER ?r1 - RING ?o2 - OBJ)
+  :task (exchange ?t1 ?t2)
+  :precondition
+  (and
+    (towerTop ?r1 ?t1)
+    (towerTop ?o2 ?t2)
+    (smallerThan ?r1 ?o2))
+  :branches ((:branch d :tasks ((move ?t1 ?t2)))))
+
+ (:method exchangerl
+  :parameters (?t1 - TOWER ?t2 - TOWER ?r1 - RING ?o2 - OBJ)
+  :task (exchange ?t1 ?t2)
+  :precondition
+  (and
+    (towerTop ?r1 ?t2)
+    (towerTop ?o2 ?t1)
+    (smallerThan ?r1 ?o2))
+  :branches ((:branch d :tasks ((move ?t2 ?t1)))))
+
+ (:action move
+  :parameters (?r - RING ?o1 - OBJ ?t1 - TOWER ?o2 - OBJ ?t2 - TOWER)
+  :task (move ?t1 ?t2)
+  :precondition (and
+    (towerTop ?r ?t1)
+    (towerTop ?o2 ?t2)
+    (on ?r ?o1) 
+    (smallerThan ?r ?o2))
+  :effect (and
+    (not (on ?r ?o1)) 
+    (on ?r ?o2)
+    (not (towerTop ?r ?t1))
+    (towerTop ?o1 ?t1) 
+    (not (towerTop ?o2 ?t2))
+    (towerTop ?r ?t2))))
+
+
