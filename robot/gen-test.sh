@@ -6,9 +6,9 @@ TGT=run.${SUFFIX}
 rm -rf ${TGT}
 mkdir ${TGT}
 
-cp robot.pddl ${TGT}
-cp ff ${TGT}
-cp run-ff.sh ${TGT}
+ln robot.pddl ${TGT}
+ln ff ${TGT}
+ln run-ff.sh ${TGT}
 ../domainTranslate 1 robot.hpddl > ${TGT}/robot.hpddl
 
 cd ${TGT}

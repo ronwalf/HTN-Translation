@@ -1,6 +1,8 @@
 #!/bin/sh
 
-TIME=/usr/bin/time
+ulimit -t 7200
+
+TIME="/usr/bin/time -p"
 
 FILES="prob*.${1}"
 
@@ -14,6 +16,7 @@ for f in ${FILES}; do
     cat ${BADFILE}
     exit
   fi  
-  tail -1 ${SOLN} >> times.${1}
-  tail -1 times.${1}
+  tail -3 ${SOLN} >> times.${1}
+  tail -3 times.${1}
 done
+touch GOODRUN.${1}
