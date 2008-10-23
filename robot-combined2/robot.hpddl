@@ -1,0 +1,128 @@
+(define (domain robot)
+  (:requirements :strips :disjunctive-preconditions)
+  (:predicates 
+    (armempty)
+    (rloc ?loc - ROOM) 
+    (in ?obj - PACKAGE ?loc - ROOM)
+    (holding ?obj - PACKAGE)
+    (closed ?d - ROOMDOOR)
+    (door ?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+    
+    (goal-in ?obj - PACKAGE ?loc - ROOM)
+    (connected ?r1 - ROOM ?r2 - ROOM)
+    (select ?r - ROOM)
+    (seen ?r - ROOM)
+    (direction ?r1 - ROOM ?r2 - ROOM)
+    )
+
+(:action pickup
+ :parameters (?obj - PACKAGE ?loc - ROOM)
+ :task (pickup)
+ :precondition (and (rloc ?loc) (in ?obj ?loc) (armempty)) 
+ :effect (and (not (in ?obj ?loc)) (not (armempty)) (holding ?obj))
+)
+
+(:action putdown
+ :parameters (?obj - PACKAGE ?loc - ROOM)
+ :task (putdown)
+ :precondition (and (rloc ?loc) (holding ?obj) (goal-in ?obj ?loc))
+ :effect (and (not (holding ?obj)) (armempty) (in ?obj ?loc) (not (goal-in ?obj ?loc)))
+)
+
+(:action move
+ :parameters (?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+ :task (move)
+ :precondition (and (rloc ?loc1) (direction ?loc1 ?loc2) (door ?loc1 ?loc2 ?d) (not (closed ?d)))
+ :effect (and (rloc ?loc2) (not (rloc ?loc1)))
+)
+
+(:action open
+ ; Free action (no task controlling it)
+ :parameters (?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+ :precondition (and (rloc ?loc1) (door ?loc1 ?loc2 ?d) (closed ?d))
+ :effect (and (not (closed ?d)))
+)
+
+
+;;  Helper actions
+
+(:action mark-connected
+ :task (mark-connected)
+ :effect (forall (?l1 - ROOM ?l2 - ROOM ?d - ROOMDOOR)
+    (when (door ?l1 ?l2 ?d) (connected ?l1 ?l2))))
+
+(:action package-select
+ :task (package-select)
+ :effect (forall (?p - PACKAGE ?lc - ROOM ?lg - ROOM)
+    (when (and (goal-in ?p ?lg) (not (in ?p ?lg)) (in ?p ?lc))
+        (and (select ?lc) (seen ?lc)))))
+
+(:action dest-select
+ :parameters (?p - PACKAGE ?lg - ROOM)
+ :task (dest-select)
+ :precondition (and (holding ?p) (goal-in ?p ?lg))
+ :effect (and (select ?lg) (seen ?lg)))
+
+(:action selection-direction
+ :task (selection-direction)
+ :effect (forall (?l1 - ROOM ?l2 - ROOM)
+    (when (and (seen ?l1) (connected ?l2 ?l1) (not (seen ?l2)))
+        (and (direction ?l2 ?l1) (seen ?l2)))))
+
+(:action clear-marks
+ :task (clear-marks)
+ :effect (forall (?l1 - ROOM ?l2 - ROOM) (and 
+    (not (direction ?l1 ?l2))
+    (not (seen ?l1))
+    (not (seen ?l2))
+    (not (select ?l1))
+    (not (select ?l2)))))
+
+
+(:method achieve-goals
+ :task (achieve-goals)
+ :branches (
+    (:branch work
+     :tasks ((mark-connected) (find-move-loop)))))
+
+(:method find-path
+ :task (find-path)
+ :branches (
+    (:branch work
+     :parameters (?l - ROOM)
+     :precondition (and (rloc ?l) (not (seen ?l)))
+     :tasks ((selection-direction) (find-path)))))
+
+(:method found-path
+ :task (find-path)
+ :branches (
+    (:branch done
+     :parameters (?l - ROOM)
+     :precondition (and (rloc ?l) (seen ?l)))))
+
+(:method navigate
+ :parameters (?l - ROOM)
+ :task (navigate)
+ :precondition (and (rloc ?l) (not (select ?l)))
+ :branches ((:branch work :tasks ((move) (navigate)))))
+
+(:method navigation
+ :parameters (?l - ROOM)
+ :task (navigate)
+ :precondition (and (rloc ?l) (select ?l))
+ :branches ((:branch done :tasks ())))
+
+
+(:method find-move-loop
+ :task (find-move-loop)
+ :branches (
+   (:branch work
+    :tasks (
+        (package-select) (find-path) (navigate) (pickup) (clear-marks)
+        (dest-select) (find-path) (navigate) (putdown) (clear-marks)
+        (find-move-loop)))))
+
+
+)
+  
+ 
