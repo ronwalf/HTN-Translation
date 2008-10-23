@@ -1,6 +1,7 @@
 #!/bin/sh
 
-ulimit -t 7200
+ulimit -c 2048
+ulimit -t 14400
 
 TIME="/usr/bin/time -p"
 
@@ -16,7 +17,8 @@ for f in ${FILES}; do
     cat ${BADFILE}
     exit
   fi  
+  echo "$f" >> times.${1}
   tail -3 ${SOLN} >> times.${1}
-  tail -3 times.${1}
+  tail -4 times.${1}
 done
 touch GOODRUN.${1}
