@@ -1,6 +1,7 @@
 #!/bin/sh
 
-ulimit -t 7200
+ulimit -t 14400 # Four hours
+ulimit -m 2097152 # 2 gigs
 
 TIME="/usr/bin/time -p"
 

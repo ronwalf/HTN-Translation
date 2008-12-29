@@ -17,14 +17,14 @@
 
 (:action pickup
  :parameters (?obj - PACKAGE ?loc - ROOM)
- :task (pickup)
+ :task (act)
  :precondition (and (rloc ?loc) (in ?obj ?loc) (armempty)) 
  :effect (and (not (in ?obj ?loc)) (not (armempty)) (holding ?obj))
 )
 
 (:action putdown
  :parameters (?obj - PACKAGE ?loc - ROOM)
- :task (putdown)
+ :task (act)
  :precondition (and (rloc ?loc) (holding ?obj) (goal-in ?obj ?loc))
  :effect (and (not (holding ?obj)) (armempty) (in ?obj ?loc) (not (goal-in ?obj ?loc)))
 )
@@ -37,12 +37,10 @@
 )
 
 (:action open
- ; Free action (no task controlling it)
  :parameters (?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
- :precondition (and (rloc ?loc1) (door ?loc1 ?loc2 ?d) (closed ?d))
+ :precondition (and (rloc ?loc1) (door ?loc1 ?loc2 ?d) (closed ?d) (direction ?loc1 ?loc2))
  :effect (and (not (closed ?d)))
 )
-
 
 ;;  Helper actions
 
@@ -52,14 +50,15 @@
     (when (door ?l1 ?l2 ?d) (connected ?l1 ?l2))))
 
 (:action package-select
- :task (package-select)
+ :task (select)
+ :precondition (armempty)
  :effect (forall (?p - PACKAGE ?lc - ROOM ?lg - ROOM)
     (when (and (goal-in ?p ?lg) (not (in ?p ?lg)) (in ?p ?lc))
         (and (select ?lc) (seen ?lc)))))
 
 (:action dest-select
  :parameters (?p - PACKAGE ?lg - ROOM)
- :task (dest-select)
+ :task (select)
  :precondition (and (holding ?p) (goal-in ?p ?lg))
  :effect (and (select ?lg) (seen ?lg)))
 
@@ -98,7 +97,8 @@
  :branches (
     (:branch done
      :parameters (?l - ROOM)
-     :precondition (and (rloc ?l) (seen ?l)))))
+     :precondition (and (rloc ?l) (seen ?l))
+     :tasks ((navigate)))))
 
 (:method navigate
  :parameters (?l - ROOM)
@@ -110,7 +110,7 @@
  :parameters (?l - ROOM)
  :task (navigate)
  :precondition (and (rloc ?l) (select ?l))
- :branches ((:branch done :tasks ())))
+ :branches ((:branch done :tasks ((clear-marks) (act)))))
 
 
 (:method find-move-loop
@@ -118,8 +118,7 @@
  :branches (
    (:branch work
     :tasks (
-        (package-select) (find-path) (navigate) (pickup) (clear-marks)
-        (dest-select) (find-path) (navigate) (putdown) (clear-marks)
+        (select) (find-path)
         (find-move-loop)))))
 
 
