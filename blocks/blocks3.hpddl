@@ -14,12 +14,13 @@
     (goal-clear ?b - BLOCK)
     (next ?b - BLOCK)
     (repeat)
+    (no-repeat)
     )
 
   (:action pickup
-    :task (acquire ?b)
+    :task (acquire)
     :parameters (?b - BLOCK)
-    :precondition (and (clear ?b) (on-table ?b))
+    :precondition (and (next ?b) (clear ?b) (on-table ?b))
     :effect (and
       (not (clear ?b)) 
       (not (on-table ?b))
@@ -42,6 +43,7 @@
     :precondition (and
       (holding ?top)
       (goal-on ?top ?bottom)
+      (not (goal-on-table ?top))
       (clear ?bottom)
       (not (move-me ?bottom)))
     :effect (and
@@ -53,9 +55,10 @@
       (clear ?top)))
 
   (:action unstack
-    :task (acquire ?top)
+    :task (acquire)
     :parameters (?top - BLOCK ?bottom - BLOCK)
     :precondition (and
+      (next ?top)
       (clear ?top)
       (on ?top ?bottom))
     :effect (and
@@ -83,29 +86,29 @@
 
   (:action mark-move-aside
     :task (mark-move-aside)
-    :effect (forall (?b - BLOCK ?x - BLOCK)
-        (when (and (not (move-me ?b)) (on ?b ?x) (move-me ?x))
-          (and (move-me ?b) (goal-on-table ?b) (repeat)))))
+    :effect (and
+        (forall (?b - BLOCK ?x - BLOCK)
+        (when (and (move-me ?x) (on ?b ?x) (goal-on ?b ?x) (not (move-me ?b)))
+          (and (move-me ?b) (repeat) (not (no-repeat)))))
+        (forall (?b - BLOCK ?x - BLOCK)
+        (when (and (move-me ?x) (on ?b ?x) (not (goal-on ?b ?x)) (not (move-me ?b)))
+          (and (move-me ?b) (goal-on-table ?b) (repeat) (not (no-repeat)))))))
+  
+  ;(:action mark-move-aside2
+  ;  :task (mark-move-aside2)
+  ;  :effect (forall (?b - BLOCK ?x - BLOCK)
+  ;      (when (and (move-me ?x) (on ?b ?x) (goal-on ?b ?x) (not (move-me ?b)))
+  ;        (and (move-me ?b) (goal-on ?b ?x) (repeat) (not (no-repeat))))))
 
   (:action mark-move-blocking
     :task (mark-move-blocking)
     :effect (forall (?b - BLOCK ?x - BLOCK)
-        (when (and (not (move-me ?b)) (on ?b ?x) (check-on ?x))
+        (when (and (on ?b ?x) (check-on ?x) (not (move-me ?b)))
           (and (move-me ?b) (goal-on-table ?b)))))
-
-  (:method find-all-moves
-    :task (find-all-moves)
-    :branches ((:branch work
-      :tasks (
-        (mark-move-on) 
-        (mark-move-table) 
-        (mark-move-blocking)
-        (mark-move-aside)
-        (find-all-aside)))))
 
   (:action remove-repeat
     :task (remove-repeat)
-    :effect (not (repeat)))
+    :effect (and (no-repeat) (not (repeat))))
 
   (:method find-all-aside
      :task (find-all-aside)
@@ -113,27 +116,40 @@
        (:branch work
          :precondition (repeat)
          :tasks ((remove-repeat) (mark-move-aside) (find-all-aside)))
-       (:branch done)))
+       (:branch done
+         :tasks ((move-loop)))))
 
   (:method move-loop
     :task (move-loop)
     :branches (
       (:branch work
+        :tasks ((mark-next) (move-loop1)))))
+
+  (:method move-next
+    :task (move-next)
+    :branches (
+      (:branch work
         :parameters (?b - BLOCK)
-        :tasks ((mark-next-table) (mark-next-on) (move-loop1)))))
+        :precondition (next ?b)
+        :tasks ((acquire) (putdown) (move-next)))
+      (:branch done
+        :tasks ((restore-aside) (move-loop)))))
 
-  (:action mark-next-table
-    :task (mark-next-table)
-    :effect (forall (?b - BLOCK) (when
-      (and (clear ?b) (move-me ?b) (goal-on-table ?b))
-      (and (repeat) (next ?b)))))
+  (:action restore-aside
+    :task (restore-aside)
+    :effect (forall (?t - BLOCK ?b - BLOCK) 
+      (when (and (on-table ?t) (goal-on ?t ?b))
+        (move-me ?t))))
 
-  (:action mark-next-on
-    :task (mark-next-on)
+
+  (:action mark-next-ready
+    :task (mark-next)
     :effect (forall (?t - BLOCK ?b - BLOCK)
-      (when (and 
-        (clear ?t) (goal-on ?t ?b) (clear ?b) (not (move-me ?b)))
-        (and (repeat) (move-me ?t) (next ?t)))))
+      (when
+        (or
+          (and (clear ?t) (goal-on-table ?t) (not (on-table ?t)))
+          (and (clear ?t) (goal-on ?t ?b) (clear ?b) (not (move-me ?b))))
+        (and (repeat) (not (no-repeat)) (next ?t)))))
 
 
   (:method move-ready
@@ -141,24 +157,33 @@
     :precondition (repeat)
     :branches (
      (:branch work
-       :parameters (?b - BLOCK)
-       :precondition (next ?b)
-       :tasks ((acquire ?b) (putdown) (move-loop1)))
-     (:branch finished
-       :tasks ((remove-repeat) (move-loop)))))
+       :precondition (repeat)
+       :tasks ((remove-repeat) (move-next)))))
 
   (:method move-none-ready
     :task (move-loop1)
     :branches (
       (:branch aside
-        :parameters (?x - BLOCK ?z - BLOCK)
-        :precondition (and (not (repeat)) (clear ?x) (on ?x ?z) (move-me ?z))
-        :tasks ((acquire ?x) (mark-temp-table ?x) (putdown) (mark-move ?x) (move-loop)))))
+        :precondition (no-repeat)
+        :tasks ((mark-aside) (move-next)))))
 
-  (:action mark-temp-table
-    :task (mark-temp-table ?b)
-    :parameters (?b - BLOCK)
-    :effect (goal-on-table ?b))
+  (:action mark-aside
+    :task (mark-aside)
+    :effect (forall (?b - BLOCK)
+      (when
+        (and (move-me ?b) (clear ?b) (not (on-table ?b)))
+        (and (goal-on-table ?b) (next ?b)))))
+
+  ;(:method move-done
+  ;  :task (move-loop1)
+  ;  :branches (
+  ;    (:branch w
+  ;      :precondition (and (no-repeat) (forall (?x - BLOCK) (not (move-me ?x)))))))
+
+  ;(:action mark-temp-table
+  ;  :task (mark-temp-table ?b)
+  ;  :parameters (?b - BLOCK)
+  ;  :effect (goal-on-table ?b))
 
   ;(:method move-done
   ;  :task (move-loop1)
@@ -172,7 +197,10 @@
     :branches (
       (:branch w
         :tasks (
-         (find-all-moves) 
-         (move-loop)
+         (mark-move-on) 
+         (mark-move-table) 
+         (mark-move-blocking)
+         (mark-move-aside)
+         (find-all-aside)
          )))))
 
