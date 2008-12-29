@@ -11,6 +11,7 @@ import Data.Function
 import Data.List
 import System.Environment
 import System.Random
+import Test.QuickCheck
 
 import Planning.PDDL.PDDL3_0
 import HTNTranslation.Translation
@@ -18,6 +19,59 @@ import HTNTranslation.Translation
 -- Constants for adding stack predicates and items.
 stackArity = 1
 stackSize = 3
+
+-- Should be something other than a double list for efficiency...
+extensions :: [[Integer]]
+extensions = 
+    map snd $ iterate ext' (0, repeat 1)
+    where
+        ext' :: (Integer, [Integer]) -> (Integer, [Integer])
+        ext' (n, prev) =
+            (n + 1, [ (prev !! k) * (n + fromIntegral k) + (prev !! (k+1)) | k <- [0..] ])
+
+pairwiseMap f [] = []
+pairwiseMap f l =
+    [ f p1 p2 | p1 <- l | p2 <- tail l ]
+
+ratios :: [[Double]]
+ratios = map (pairwiseMap (\ x y -> fromIntegral y / fromIntegral x)) extensions
+
+tableProb :: Int -> Int -> Double
+tableProb free rooted = 
+    let rat = ratios !! free !! rooted in
+    rat / (rat + fromIntegral free + fromIntegral rooted)
+
+makeStateWithBlocks :: [(Bool, [a])] -> Gen [(Bool, [a])]
+makeStateWithBlocks blocks = do
+    let freeTowers = filter (not . fst) blocks
+    let rootedTowers = filter fst blocks
+    let frt = length freeTowers - 1
+    let nrt = length rootedTowers
+    let p = tableProb frt nrt
+    let m = maxBound `div` 2 :: Int
+    let weight = floor $ p * fromIntegral m
+    if null freeTowers then return blocks else do
+        selected <- frequency [
+            (weight, tableBlocks freeTowers rootedTowers), 
+            (m - weight, stackBlocks freeTowers rootedTowers)]
+        makeStateWithBlocks selected
+    where
+        tableBlocks (h:restFree) rootedTowers = do
+            return $ (True, snd h) : rootedTowers ++ restFree
+        stackBlocks (h:restFree) rootedTowers = do
+            let choices = rootedTowers ++ restFree
+            n <- choose (0, length choices - 1)
+            let (before, mod:after) = splitAt n choices
+            return $ before ++ (fst mod, snd h ++ snd mod) : after
+
+makeState :: [a] -> Gen [[a]]
+makeState blocks = do
+    let freeTowers = [(False, [b]) | b <- blocks]
+    towers <- makeStateWithBlocks freeTowers
+    return $ map snd towers
+    
+            
+            
 
 newRandomList range = do
     g <- newStdGen
@@ -64,12 +118,10 @@ makeBlockProblem pname blockNames stacks gstacks =
 
     
 
-genBlocks :: Int -> [String] -> IO [[String]]
-genBlocks towerCount blocks = do
-    bnames <- permute blocks 
-    towers <- return (sort . (take $ length blocks)) `ap` newRandomList (1, towerCount)
-    return $ map (map snd) $ groupBy ((==) `on` fst) $ zip towers bnames
-
+genBlocks :: [String] -> IO [[String]]
+genBlocks blocks = do
+    gen <- newStdGen
+    return $ generate 1 gen $ makeState blocks
 
 addGoalsAndTask :: [[String]] -> PDDLProblem -> PDDLProblem
 addGoalsAndTask gstacks prob =
@@ -84,18 +136,14 @@ addGoalsAndTask gstacks prob =
 
 
 main = do
-    [towersStr, blocksStr, fname] <- getArgs
-    let basename = fname ++ towersStr ++ "_" ++ blocksStr
+    [fname, blocksStr] <- getArgs
     let blockCount = read blocksStr
-    let towerCount = read towersStr 
-    let bnames = ['b' : show n | n <- [1 .. blockCount]]
-    initState <- genBlocks towerCount bnames
-    goalBlocks <- return (take $ blockCount `div` 2 ) `ap` permute bnames
-    goalState <- genBlocks (towerCount `div` 2) goalBlocks
-    
-    let prob = makeBlockProblem basename bnames initState goalState
+    let blocks = ['b': show n | n <- [1..blockCount]]
+    initState <- genBlocks blocks
+    goalState <- genBlocks blocks
+    let prob = makeBlockProblem fname blocks initState goalState
     let hprob = translateProblem stackSize stackArity $ addGoalsAndTask goalState prob
     
-    writeFile (basename ++ ".pddl") (show prob)
-    writeFile (basename ++ ".hpddl") (show hprob)
+    writeFile (fname ++ ".pddl") (show prob)
+    writeFile (fname ++ ".hpddl") (show hprob)
 

@@ -1,8 +1,4 @@
-{-# OPTIONS
- -fglasgow-exts
- -fcontext-stack=40
- -fallow-overlapping-instances
- #-}
+{-# LANGUAGE OverlappingInstances #-}
 module HTNTranslation.HTNPDDL (
     module Planning.PDDL.PDDL3_0,
     StandardHTNDomain,
@@ -28,7 +24,9 @@ type StandardHTNDomain = Domain ConstraintGDExpr (Expr (DomainItem StandardHActi
 --deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
 type TaskList = [Expr PDDLAtom]
+taskName :: Expr (Atomic t) -> String
 taskName (In (Atomic p _)) = p
+taskArgs :: Expr (Atomic t) -> [t]
 taskArgs (In (Atomic _ al)) = al
 
 data Branch c = Branch {
@@ -39,7 +37,7 @@ data Branch c = Branch {
 } deriving (Data, Eq)
 deriving instance Typeable1 Branch
 
-
+emptyBranch :: forall c. Branch c
 emptyBranch = Branch {
     branchName = "empty",
     bparameters = [],
@@ -82,6 +80,7 @@ instance PDDLDoc c => PDDLDoc (Method (Expr c)) where
 -}
 
 data TaskHead f = TaskHead f deriving (Data, Eq, Typeable)
+unTaskHead :: TaskHead t -> t
 unTaskHead (TaskHead h) = h
 class (Data a, Data f) => HasTaskHead f a | a -> f where
     getTaskHead :: a -> f
@@ -93,6 +92,7 @@ type StdTaskHead = Maybe (Expr (Atomic TermExpr))
 
 data Branches c = Branches [Branch c] deriving (Data, Eq)
 deriving instance Typeable1 Branches
+unBranches :: Branches t -> [Branch t]
 unBranches (Branches bl) = bl
 class (Data a, Data c) => HasBranches c a | a -> c where
     getBranches :: a -> [Branch c]
@@ -116,6 +116,7 @@ instance Data c => HasTaskHead StdTaskHead (Method c)
 instance Data c => HasPrecondition c (Method c)
 instance Data c => HasBranches c (Method c)
 
+defaultMethod :: forall c. Method c
 defaultMethod = Method undefined 
     (Parameters [])
     undefined
@@ -156,6 +157,7 @@ instance (Data p, Data e) => HasTaskHead StdTaskHead (HAction p e)
 instance (Data p, Data e) => HasPrecondition p (HAction p e)
 instance (Data p, Data e) => HasEffect e (HAction p e)
 
+defaultHAction :: forall p e. HAction p e
 defaultHAction = HAction undefined 
     (Parameters [])
     (TaskHead Nothing)
@@ -176,43 +178,53 @@ instance (Data (Expr p), Data (Expr e), PDDLDoc p, PDDLDoc e) =>
 type StandardHAction = HAction PreferenceGDExpr EffectDExpr
 
 
-            
+htnLanguage :: forall st. T.LanguageDef st
 htnLanguage = pddlLanguage {
     T.reservedNames = T.reservedNames pddlLanguage ++
         [":method", ":task", ":tasks", ":branch", ":branches"]
     }
 
+htnLexer :: forall st. T.TokenParser st
 htnLexer = T.makeTokenParser htnLanguage
 
 htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
 htnParser = let 
-        lex = htnLexer 
-        condParser = prefGDParser lex 
-        effParser = effectDParser lex 
-        constraintP = constraintGDParser lex
+        mylex = htnLexer 
+        condParser = prefGDParser mylex 
+        effParser = effectDParser mylex 
+        constraintP = constraintGDParser mylex
         actions =
-            (hActionParser lex condParser effParser)
+            (hActionParser mylex condParser effParser)
             <|>
-            (methodParser lex condParser :: CharParser StandardHTNDomain ())
+            (methodParser mylex condParser :: CharParser StandardHTNDomain ())
     in
-    domainParser lex (domainInfoParser lex constraintP) actions
+    domainParser mylex (domainInfoParser mylex constraintP) actions
 
-hActionParser lex condParser effParser = do
-    let infoParser = hActionInfoParser lex condParser effParser
-    try $ T.reserved lex ":action"
-    name <- T.identifier lex
+hActionParser :: (Data p, Data e, HasItems (Expr f) st,
+    DomainItem (HAction p e) :<: f) =>
+    T.TokenParser st -> CharParser st p -> CharParser st e -> GenParser Char st ()
+hActionParser mylex condParser effParser = do
+    let infoParser = hActionInfoParser mylex condParser effParser
+    try $ T.reserved mylex ":action"
+    name <- T.identifier mylex
     updates <- many infoParser
     let action = foldl (\ a t -> t a) (setName name defaultHAction) updates
     updateState (\d -> setItems (domainItem action : getItems d) d)
 
-hActionInfoParser lex condParser effParser =
-    paramParser lex
+hActionInfoParser :: (HasParameters TypedVarExpr a,
+    HasTaskHead (Maybe (Expr f)) a,
+    HasPrecondition b a,
+    HasEffect c a,
+    Atomic TermExpr :<: f) =>
+    T.TokenParser st -> CharParser st b -> CharParser st c -> GenParser Char st (a -> a)
+hActionInfoParser mylex condParser effParser =
+    paramParser mylex
     <|>
-    taskHeadParser lex
+    taskHeadParser mylex
     <|>
-    precondParser lex condParser
+    precondParser mylex condParser
     <|>
-    effectParser lex effParser
+    effectParser mylex effParser
 
     
 
@@ -221,58 +233,66 @@ methodParser :: forall f a b .
     T.TokenParser (Domain a (Expr b)) -> 
     CharParser (Domain a (Expr b)) f -> 
     CharParser (Domain a (Expr b)) ()
-methodParser lex condParser = do
+methodParser mylex condParser = do
     let 
         infoParser :: CharParser (Domain a (Expr b)) (Method f -> Method f)
-        infoParser = methodInfoParser lex condParser 
-    try $ T.reserved lex ":method"
-    name <- T.identifier lex
+        infoParser = methodInfoParser mylex condParser 
+    try $ T.reserved mylex ":method"
+    name <- T.identifier mylex
     updates <- many infoParser
     let method = foldl (\a t -> t a) (setName name defaultMethod) updates
     updateState (\d -> setItems (domainItem method : getItems d) d)
 
-methodInfoParser lex condParser =
-    paramParser lex
+methodInfoParser :: (HasParameters TypedVarExpr a,
+    HasPrecondition b a,
+    HasBranches b a,
+    HasTaskHead (Maybe (Expr f)) a,
+    Atomic TermExpr :<: f) =>
+    T.TokenParser st -> CharParser st b -> CharParser st (a -> a)
+methodInfoParser mylex condParser =
+    paramParser mylex
     <|>
-    precondParser lex condParser
+    precondParser mylex condParser
     <|>
-    taskHeadParser lex
+    taskHeadParser mylex
     <|>
     (do
-        try $ T.reserved lex ":branches"
-        bl <- T.parens lex $ many $ branchParser lex condParser
+        try $ T.reserved mylex ":branches"
+        bl <- T.parens mylex $ many $ branchParser mylex condParser
         return $ setBranches bl)
 
-taskHeadParser lex = do
-    try $ T.reserved lex ":task"
-    task <- maybeParser lex $ atomicParser lex (termParser lex)
+taskHeadParser mylex = do
+    try $ T.reserved mylex ":task"
+    task <- maybeParser mylex $ atomicParser mylex (termParser mylex)
     return $ setTaskHead task
 
-branchParser lex condParser = T.parens lex $ do
-    T.reserved lex ":branch"
-    name <- T.identifier lex
+branchParser mylex condParser = T.parens mylex $ do
+    T.reserved mylex ":branch"
+    name <- T.identifier mylex
     collect (emptyBranch { branchName = name }) (\b ->
         (do
-            try $ T.reserved lex ":parameters"
-            parameters <- T.parens lex $ many $ parseTypedVar lex
+            try $ T.reserved mylex ":parameters"
+            parameters <- T.parens mylex $ many $ parseTypedVar mylex
             return $ b { bparameters = parameters })
         <|>
         (do
-            try $ T.reserved lex ":precondition"
-            cond <- maybeParser lex condParser
+            try $ T.reserved mylex ":precondition"
+            cond <- maybeParser mylex condParser
             return $ b { bprecondition = cond })
         <|>
         (do
-            try $ T.reserved lex ":tasks"
-            tasks <- T.parens lex $ many $ taskParser lex
+            try $ T.reserved mylex ":tasks"
+            tasks <- T.parens mylex $ many $ taskParser mylex
             return $ b { tasks = tasks }))
 
         
-
-taskParser lex = T.parens lex (do
-    name <- T.identifier lex
-    terms <- many $ termParser lex
+taskParser :: (:<:) (Atomic TermExpr) f => 
+    T.TokenParser st -> CharParser st (Expr f)
+taskParser mylex = T.parens mylex (do
+    name <- T.identifier mylex
+    terms <- many $ termParser mylex
     return $ eAtomic name terms)
 
+parseHTNPDDL :: SourceName -> String -> Either ParseError StandardHTNDomain
 parseHTNPDDL source input =
     runParser htnParser emptyDomain source input

@@ -9,6 +9,7 @@ import System.IO
 import HTNTranslation.HTNPDDL
 import HTNTranslation.Translation
 
+processDomain :: Int -> FilePath -> IO ()
 processDomain arity domfile = do
     contents <- readFile domfile
     printResult $ parseHTNPDDL domfile contents
@@ -18,6 +19,7 @@ processDomain arity domfile = do
             let domain = translateDomain arity dom (undefined :: EffectDExpr) :: PDDLDomain 
             print domain
 
+main :: IO ()
 main = do
     stackArity:args <- getArgs
     sequence_ [

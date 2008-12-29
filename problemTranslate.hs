@@ -1,8 +1,4 @@
-{-# OPTIONS
- -fglasgow-exts
- -fallow-undecidable-instances
- -fcontext-stack=40
-#-}
+{-# LANGUAGE UndecidableInstances#-}
 module Main where
 
 import Data.Maybe
@@ -55,19 +51,19 @@ instance (AtomicRenamer h f, AtomicRenamer h g)
 instance (:<:) (Atomic t) f => AtomicRenamer f (Atomic t) where
     atomicRenamer t (Atomic p tl) = eAtomic (t p) tl
 instance (:<:) And f => AtomicRenamer f And where
-    atomicRenamer t (And el) = eAnd el
+    atomicRenamer _ (And el) = eAnd el
 instance (:<:) Or f => AtomicRenamer f Or where
-    atomicRenamer t (Or el) = eOr el
+    atomicRenamer _ (Or el) = eOr el
 instance (:<:) Not f => AtomicRenamer f Not where
-    atomicRenamer t (Not e) = eNot e
+    atomicRenamer _ (Not e) = eNot e
 instance (:<:) Imply f => AtomicRenamer f Imply where
     atomicRenamer t (Imply e1 e2) = eImply e1 e2
 instance (:<:) (Exists v) f => AtomicRenamer f (Exists v) where
-    atomicRenamer t (Exists vl e) = eExists vl e
+    atomicRenamer _ (Exists vl e) = eExists vl e
 instance (:<:) (ForAll v) f => AtomicRenamer f (ForAll v) where
-    atomicRenamer t (ForAll vl e) = eForAll vl e
+    atomicRenamer _ (ForAll vl e) = eForAll vl e
 instance (:<:) Preference f => AtomicRenamer f Preference where
-    atomicRenamer t (Preference n e) = ePreference n e
+    atomicRenamer _ (Preference n e) = ePreference n e
 
 
 renameAtomics :: (Functor g, AtomicRenamer g g) => (String -> String) -> Expr g -> Expr g
@@ -90,6 +86,9 @@ instance ConstFinder f Function where
 findConst :: (Functor f, Functor g, ConstFinder g f) => Expr f -> Maybe (Expr g)
 findConst = foldExpr constFinder
 
+--constAtomic :: (Functor f, Functor g, ConstFinder g f, 
+--    (:<:) (Atomic (Expr g)) h) =>
+--    Expr g -> Expr (Atomic (Expr f)) -> Maybe (Expr g)
 constAtomic constTemplate (In (Atomic p tl)) =
     let consts = mapMaybe findConst tl `asTypeOf` [constTemplate] in
     if (length tl == length consts) then
@@ -97,6 +96,7 @@ constAtomic constTemplate (In (Atomic p tl)) =
     else
         Nothing
 
+processProblem :: Int -> Int -> FilePath -> IO ()
 processProblem items arity domfile = do
     contents <- readFile domfile
     printResult $ runParser pddlProblemParser emptyProblem domfile contents
@@ -115,6 +115,7 @@ processProblem items arity domfile = do
             let problem = setInitial (initGoals ++ getInitial translated) translated
             print problem 
 
+main :: IO ()
 main = do
     stackArity:stackItems:args <- getArgs
     sequence_ [
