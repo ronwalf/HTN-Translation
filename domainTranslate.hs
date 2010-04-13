@@ -4,7 +4,6 @@
 module Main where
 
 import System.Environment
-import System.IO
 
 import HTNTranslation.HTNPDDL
 import HTNTranslation.Translation

@@ -415,6 +415,7 @@ translateBranch (isAtomic, stackParams, oVars, nVars, _) prefix task methodParam
             [((Expr PDDLAtom, Expr PDDLAtom),(Bool, Maybe Bool))] 
             -> Expr PDDLAtom
             -> [((Expr PDDLAtom, Expr PDDLAtom),(Bool, Maybe Bool))]
+        startStatus [] _ = []
         startStatus (((prev, pprev), (_, pprevA)) : rest) curr =
             let prevA = isAtomic $ taskName prev in
             ((curr, prev), (True, Just prevA)) : ((prev, pprev), (prevA, pprevA)) : rest

@@ -28,7 +28,7 @@ Library
         syb >= 0.1 && < 0.2,
         parsec >= 2.1.0.1 && < 3,
         pretty >= 1.0.1.0 && < 2,
-        containers >= 0.2.0.0 && < 0.3,
+        containers >= 0.2.0.0 && < 0.4,
         Planning == 0.1
   Exposed-modules:
         HTNTranslation.HTNPDDL, HTNTranslation.Translation

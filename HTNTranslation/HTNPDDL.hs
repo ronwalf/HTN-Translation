@@ -261,11 +261,19 @@ methodInfoParser mylex condParser =
         bl <- T.parens mylex $ many $ branchParser mylex condParser
         return $ setBranches bl)
 
+taskHeadParser :: (Atomic TermExpr :<: f,
+        HasTaskHead (Maybe (Expr f)) a) =>
+    T.TokenParser st -> GenParser Char st (a -> a)
+
 taskHeadParser mylex = do
     try $ T.reserved mylex ":task"
     task <- maybeParser mylex $ atomicParser mylex (termParser mylex)
     return $ setTaskHead task
 
+branchParser ::
+    T.TokenParser st
+    -> CharParser st a
+    -> CharParser st (Branch a)
 branchParser mylex condParser = T.parens mylex $ do
     T.reserved mylex ":branch"
     name <- T.identifier mylex
@@ -282,8 +290,8 @@ branchParser mylex condParser = T.parens mylex $ do
         <|>
         (do
             try $ T.reserved mylex ":tasks"
-            tasks <- T.parens mylex $ many $ taskParser mylex
-            return $ b { tasks = tasks }))
+            mytasks <- T.parens mylex $ many $ taskParser mylex
+            return $ b { tasks = mytasks }))
 
         
 taskParser :: (:<:) (Atomic TermExpr) f => 
