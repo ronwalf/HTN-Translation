@@ -1,4 +1,15 @@
-{-# LANGUAGE OverlappingInstances, UndecidableInstances#-}
+{-# LANGUAGE
+    FlexibleContexts,
+    FlexibleInstances,
+    MultiParamTypeClasses,
+    OverlappingInstances,
+    ParallelListComp,
+    RankNTypes,
+    ScopedTypeVariables,
+    TypeOperators,
+    TypeSynonymInstances,
+    UndecidableInstances
+  #-}
 module HTNTranslation.Translation
 where
 

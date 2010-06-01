@@ -1,4 +1,16 @@
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE
+    DeriveDataTypeable,
+    FlexibleContexts,
+    FlexibleInstances,
+    FunctionalDependencies,
+    MultiParamTypeClasses,
+    OverlappingInstances, 
+    RankNTypes,
+    ScopedTypeVariables,
+    StandaloneDeriving, 
+    TypeOperators,
+    TypeSynonymInstances
+  #-}
 module HTNTranslation.HTNPDDL (
     module Planning.PDDL.PDDL3_0,
     StandardHTNDomain,

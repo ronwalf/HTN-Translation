@@ -13,13 +13,13 @@ Executable domainTranslate
     Main-Is: domainTranslate.hs
     Build-Depends:
     GHC-Options:
-        -O2 -fglasgow-exts -fcontext-stack=40 -Wall
+        -O -fcontext-stack=40 -Wall
 
 Executable problemTranslate 
     Main-Is: problemTranslate.hs
     Build-Depends:
     GHC-Options:
-        -O2 -fglasgow-exts -fcontext-stack=40 -Wall
+        -O -fcontext-stack=40 -Wall
 
 
 Library
@@ -33,6 +33,6 @@ Library
   Exposed-modules:
         HTNTranslation.HTNPDDL, HTNTranslation.Translation
   ghc-options:
-        -O2 -fglasgow-exts -fcontext-stack=40 -Wall
+        -O -fcontext-stack=40 -Wall
 
 

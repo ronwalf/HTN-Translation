@@ -1,9 +1,15 @@
-{-# LANGUAGE UndecidableInstances#-}
+{-# LANGUAGE
+    FlexibleContexts,
+    FlexibleInstances,
+    MultiParamTypeClasses,
+    ScopedTypeVariables,
+    TypeOperators,
+    UndecidableInstances
+  #-}
 module Main where
 
 import Data.Maybe
 import System.Environment
-import System.IO
 import Text.ParserCombinators.Parsec
 
 import HTNTranslation.Translation
@@ -57,7 +63,7 @@ instance (:<:) Or f => AtomicRenamer f Or where
 instance (:<:) Not f => AtomicRenamer f Not where
     atomicRenamer _ (Not e) = eNot e
 instance (:<:) Imply f => AtomicRenamer f Imply where
-    atomicRenamer t (Imply e1 e2) = eImply e1 e2
+    atomicRenamer _ (Imply e1 e2) = eImply e1 e2
 instance (:<:) (Exists v) f => AtomicRenamer f (Exists v) where
     atomicRenamer _ (Exists vl e) = eExists vl e
 instance (:<:) (ForAll v) f => AtomicRenamer f (ForAll v) where
@@ -86,9 +92,9 @@ instance ConstFinder f Function where
 findConst :: (Functor f, Functor g, ConstFinder g f) => Expr f -> Maybe (Expr g)
 findConst = foldExpr constFinder
 
---constAtomic :: (Functor f, Functor g, ConstFinder g f, 
---    (:<:) (Atomic (Expr g)) h) =>
---    Expr g -> Expr (Atomic (Expr f)) -> Maybe (Expr g)
+constAtomic :: (Functor f, Functor g, Functor h, ConstFinder g f, 
+    Atomic (Expr g) :<: h) =>
+    Expr g -> Expr (Atomic (Expr f)) -> Maybe (Expr h)
 constAtomic constTemplate (In (Atomic p tl)) =
     let consts = mapMaybe findConst tl `asTypeOf` [constTemplate] in
     if (length tl == length consts) then
