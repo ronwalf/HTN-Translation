@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC
+    -fcontext-stack=30
+  #-}
 {-# LANGUAGE
     DeriveDataTypeable,
     FlexibleContexts,
@@ -19,23 +22,76 @@ module HTNTranslation.HTNPDDL (
     TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
     Branches(..), HasBranches, getBranches, setBranches,
     Branch(..), emptyBranch,
-    TaskList, taskName, taskArgs, StdTaskHead,
+    TaskList, taskName, taskArgs, StdTask, StdTaskHead,
     parseHTNPDDL
 ) where
 
+import Data.List
 import Data.Generics (Data, Typeable, Typeable1, Typeable2)
 import Data.Maybe
-import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec hiding (space)
 import qualified Text.ParserCombinators.Parsec.Token as T
 import Text.PrettyPrint
 
 import Planning.PDDL.PDDL3_0
 import Planning.PDDL.Parser
 
-type StandardHTNDomain = Domain ConstraintGDExpr (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
+data HDomain a b = HDomain
+    Name
+    Requirements
+    (Types TypedConstExpr)
+    (Constants TypedConstExpr)
+    (Predicates (Expr (Atomic TypedVarExpr)))
+    (TaskHead [StdTaskDef])
+    (Functions TypedFuncExpr)
+    (Constraints a)
+    (Items b)
+    deriving (Data, Eq, Typeable)
+
+instance (Data a, Data b) => HasName (HDomain a b)
+instance (Data a, Data b) => HasRequirements (HDomain a b)
+instance (Data a, Data b) => HasTypes TypedConstExpr (HDomain a b)
+instance (Data a, Data b) => HasConstants TypedConstExpr (HDomain a b)
+instance (Data a, Data b) => HasPredicates (Expr (Atomic TypedVarExpr)) (HDomain a b)
+instance (Data a, Data b) => HasTaskHead [StdTaskDef] (HDomain a b)
+instance (Data a, Data b) => HasFunctions TypedFuncExpr (HDomain a b)
+instance (Data a, Data b) => HasConstraints a (HDomain a b)
+instance (Data a, Data b) => HasItems b (HDomain a b)
+instance (Data (Expr a), Data (Expr b), PDDLDoc a, PDDLDoc b) =>
+    Show (HDomain (Expr a) (Expr b)) where
+    show domain = show $ parens $ ($$) (text "define") $ vcat $
+        parens (text "domain" <+> text (getName domain)) :
+         -- Requirement strings are prefixed with ':'
+        (if (null $ getRequirements domain) then empty else parens
+            (sep $
+             map (text . (':':)) $
+             "requirements" : getRequirements domain)) :
+        parens (sep $ (text ":types") :
+            [pddlDoc t | (In t) <- getTypes domain]) :
+        parens (sep $ (text ":predicates") :
+            [pddlDoc p | (In p) <- getPredicates domain]) :
+        parens (sep $ (text ":tasks") :
+            [pddlDoc p | (In p) <- getTaskHead domain]) :
+        space :
+        intersperse space [pddlDoc x | In x <- getItems domain]
+
+emptyHDomain :: forall a b. HDomain a b
+emptyHDomain = HDomain
+    (Name "empty")
+    (Requirements [])
+    (Types [])
+    (Constants [])
+    (Predicates [])
+    (TaskHead [])
+    (Functions [])
+    (Constraints Nothing)
+    (Items [])
+
+
+type StandardHTNDomain = HDomain ConstraintGDExpr (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 --deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
-type TaskList = [Expr PDDLAtom]
+type TaskList = [Either (Expr PDDLAtom) [Expr PDDLAtom]]
 taskName :: Expr (Atomic t) -> String
 taskName (In (Atomic p _)) = p
 taskArgs :: Expr (Atomic t) -> [t]
@@ -100,7 +156,9 @@ class (Data a, Data f) => HasTaskHead f a | a -> f where
     setTaskHead :: f -> a -> a
     setTaskHead h r = fromJust $ greplace r (TaskHead h)
 
-type StdTaskHead = Maybe (Expr (Atomic TermExpr))
+type StdTask = Expr (Atomic TermExpr)
+type StdTaskHead = Maybe StdTask 
+type StdTaskDef = Expr (Atomic TypedVarExpr)
 
 data Branches c = Branches [Branch c] deriving (Data, Eq)
 deriving instance Typeable1 Branches
@@ -147,7 +205,11 @@ instance (Data (Expr c), PDDLDoc c) => PDDLDoc (DomainItem (Method (Expr c))) wh
                 text ":branch" <+> text (branchName br),
                 text ":parameters" <+> parens (sep $ map pddlExprDoc $ bparameters br),
                 docMaybe ":precondition" $ bprecondition br,
-                text ":tasks" <+> parens (sep $ map pddlExprDoc $ tasks br) ]
+                text ":tasks" <+> parens (sep $ map taskDoc $ tasks br) ]
+            taskDoc (Left task) = pddlExprDoc task
+            taskDoc (Right tasks) = parens $ sep $ 
+                text ":unordered" :
+                map pddlExprDoc tasks
                 
         
 
@@ -193,7 +255,7 @@ type StandardHAction = HAction PreferenceGDExpr EffectDExpr
 htnLanguage :: forall st. T.LanguageDef st
 htnLanguage = pddlLanguage {
     T.reservedNames = T.reservedNames pddlLanguage ++
-        [":method", ":task", ":tasks", ":branch", ":branches"]
+        [":method", ":task", ":tasks", ":branch", ":branches", ":unordered"]
     }
 
 htnLexer :: forall st. T.TokenParser st
@@ -210,7 +272,26 @@ htnParser = let
             <|>
             (methodParser mylex condParser :: CharParser StandardHTNDomain ())
     in
-    domainParser mylex (domainInfoParser mylex constraintP) actions
+    domainParser mylex (hDomainInfoParser mylex constraintP) actions
+
+hDomainInfoParser :: (HasRequirements st,
+        HasTypes TypedConstExpr st,
+        HasConstants TypedConstExpr st,
+        HasConstraints a st,
+        HasTaskHead [StdTaskDef] st,
+        Atomic TypedVarExpr :<: f,
+        HasPredicates (Expr f) st) =>
+    T.TokenParser st
+    -> CharParser st a
+    -> CharParser st ()
+hDomainInfoParser mylex condParser =
+    (do
+        try $ T.reserved mylex ":tasks"
+        tasks <- many $ T.parens mylex (atomicParser mylex (parseTypedVar mylex))
+        updateState (setTaskHead tasks))
+    <|>
+    domainInfoParser mylex condParser
+
 
 hActionParser :: (Data p, Data e, HasItems (Expr f) st,
     DomainItem (HAction p e) :<: f) =>
@@ -242,12 +323,12 @@ hActionInfoParser mylex condParser effParser =
 
 methodParser :: forall f a b .
     ((:<:) (DomainItem (Method f)) b, Data f, Data a, Data (Expr b)) => 
-    T.TokenParser (Domain a (Expr b)) -> 
-    CharParser (Domain a (Expr b)) f -> 
-    CharParser (Domain a (Expr b)) ()
+    T.TokenParser (HDomain a (Expr b)) -> 
+    CharParser (HDomain a (Expr b)) f -> 
+    CharParser (HDomain a (Expr b)) ()
 methodParser mylex condParser = do
     let 
-        infoParser :: CharParser (Domain a (Expr b)) (Method f -> Method f)
+        infoParser :: CharParser (HDomain a (Expr b)) (Method f -> Method f)
         infoParser = methodInfoParser mylex condParser 
     try $ T.reserved mylex ":method"
     name <- T.identifier mylex
@@ -302,17 +383,29 @@ branchParser mylex condParser = T.parens mylex $ do
         <|>
         (do
             try $ T.reserved mylex ":tasks"
-            mytasks <- T.parens mylex $ many $ taskParser mylex
+            mytasks <- T.parens mylex $ many $ taskLIParser mylex
             return $ b { tasks = mytasks }))
 
-        
+
+taskLIParser :: (:<:) (Atomic TermExpr) f =>
+    T.TokenParser st -> CharParser st (Either (Expr f) [Expr f])
+taskLIParser mylex = T.parens mylex $
+    (do
+        try $ T.reserved mylex ":unordered"
+        utasks <- many $ taskParser mylex
+        return $ Right utasks)
+    <|>
+    (do
+        task <- taskParser mylex
+        return $ Left task)
+
 taskParser :: (:<:) (Atomic TermExpr) f => 
     T.TokenParser st -> CharParser st (Expr f)
-taskParser mylex = T.parens mylex (do
+taskParser mylex = do
     name <- T.identifier mylex
     terms <- many $ termParser mylex
-    return $ eAtomic name terms)
+    return $ eAtomic name terms
 
 parseHTNPDDL :: SourceName -> String -> Either ParseError StandardHTNDomain
 parseHTNPDDL source input =
-    runParser htnParser emptyDomain source input
+    runParser htnParser emptyHDomain source input

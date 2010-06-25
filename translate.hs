@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC
     -fcontext-stack=30
+    -Wall
   #-}
 {-# LANGUAGE
     FlexibleContexts,
@@ -11,12 +12,18 @@
   #-}
 module Main where
 
+import Control.Monad
+import Data.List
 import Data.Maybe
 import System.Environment
+import System.Exit
+import System.IO
 import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec.Token
 
-import HTNTranslation.Translation
-import Planning.PDDL.PDDL3_0
+import HTNTranslation.HTNPDDL
+import HTNTranslation.TranslationOpt
+import Planning.PDDL.Parser
 
 class Functor f => AtomicFinder t f where
     --atomicFinder :: f [Expr (Atomic t)]-> [Expr (Atomic t)]
@@ -105,31 +112,81 @@ constAtomic constTemplate (In (Atomic p tl)) =
     else
         Nothing
 
-processProblem :: Int -> Int -> FilePath -> IO ()
-processProblem items arity domfile = do
-    contents <- readFile domfile
-    printResult $ runParser pddlProblemParser emptyProblem domfile contents
-    where
-        printResult (Left err) = print err
-        printResult (Right dom) = do
-            let translated = translateProblem items arity dom
-            let atomicGoals =
-                    maybe [] (findAtomics . renameAtomics ("goal-"++)) (getGoal dom) 
-                    :: [Expr PDDLAtom]
-            let initGoals =
-                    (eAtomic "start_achieve-goals" ([] :: [ConstTermExpr])) :
-                    mapMaybe 
-                    (constAtomic (undefined :: ConstTermExpr))
-                    atomicGoals :: [InitLiteralExpr]
-            let problem = setInitial (initGoals ++ getInitial translated) translated
-            print problem 
+errCheck :: (Show t) => Either t b -> IO b
+errCheck (Left err) = do
+    hPrint stderr err
+    exitFailure 
+errCheck (Right prob) = return prob
+
+
+processProblem :: 
+    Expr (Atomic ConstTermExpr) 
+    -> [CallNode]
+    -> Int -> Int 
+    -> FilePath -> FilePath 
+    -> IO [String]
+processProblem task callNodes arity items pfile pfile' = do
+    let countNums = replicate arity items
+    contents <- readFile pfile
+    prob <- errCheck $ runParser pddlProblemParser emptyProblem pfile contents
+    let (counters :: [[ConstTermExpr]], prob') = renderCounters countNums prob
+    let prob'' = renderInitTask task callNodes counters prob'
+    let atomicGoals =
+            maybe [] (findAtomics . renameAtomics ("goal-"++)) (getGoal prob)
+            :: [Expr PDDLAtom]
+    let goalPreds =
+            nub $
+            sort $
+            map taskName $
+            maybe [] (findAtomics :: PreferenceGDExpr -> [Expr PDDLAtom]) $
+            getGoal prob
+
+    let initGoals =
+            getInitial prob''
+            ++ mapMaybe (constAtomic (undefined :: ConstTermExpr)) atomicGoals
+    writeFile pfile' (show $ setInitial initGoals prob'')
+    return goalPreds
+
+processDomain ::
+    FilePath -> IO (PDDLDomain, [CallNode])
+processDomain dfile = do
+    contents <- readFile dfile
+    dom <- errCheck $ parseHTNPDDL dfile contents
+    let (dom', callNodes) = deconstructHDomain dom
+    let dom'' = renderCalls dom' callNodes
+    return (dom'', callNodes)
+
+stripPostfix :: String -> String
+stripPostfix =
+    -- reverse . tail . (dropWhile (/= '.')) . reverse
+    takeWhile (/= '.')
+
+taskParser :: CharParser a (Expr (Atomic ConstTermExpr))
+taskParser = parens pddlLexer $
+    atomicParser pddlLexer $ constTermParser pddlLexer
 
 main :: IO ()
 main = do
-    stackArity:stackItems:args <- getArgs
-    sequence_ [
+    arityS:itemsS:domFile:domFile':taskstr:problems <- getArgs
+    let arity = read arityS :: Int
+    let items = read itemsS :: Int
+    task <- errCheck $ runParser taskParser () taskstr taskstr
+    (dom, callNodes) <- processDomain domFile
+    goalPredNames <- liftM (sort . nub . concat) $ sequence [
         processProblem
-            (read stackItems :: Int)
-            (read stackArity :: Int) 
-            domfile 
-        | domfile <- args]
+            task
+            callNodes
+            arity
+            items
+            pfile
+            (stripPostfix pfile ++ ".htn1.pddl")
+        | pfile <- problems]
+    let cPredNames = map taskName $
+            getPredicates dom
+    let preds :: [Expr (Atomic TypedVarExpr)] = (++) (getPredicates dom) $
+            filter (not . flip elem cPredNames . taskName) $
+            map (renameAtomics ("goal-"++)) $
+            filter (flip elem goalPredNames . taskName) $
+            getPredicates dom
+    writeFile domFile' $ show $ setPredicates preds dom
+    return ()
