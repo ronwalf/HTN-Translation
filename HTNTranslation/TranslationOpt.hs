@@ -449,7 +449,7 @@ instance ItemDeconstructor (DomainItem StandardHAction) where
 instance ItemDeconstructor (DomainItem StandardMethod) where
     deconItem' (DomainItem m) =
         let 
-            prefix = getName m ++ "_"
+            prefix = "htn_" ++ getName m ++ "_"
             mbranches = case (getBranches m) of
                 [] -> [emptyBranch]
                 bl -> bl

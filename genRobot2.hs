@@ -111,10 +111,10 @@ main = do
     [objStr, fname] <- getArgs
     let basename = fname -- ++ pkgStr
     let objCount = read objStr :: Int
-    roomCount <- randomRIO (1, objCount)
-    let pkgs = objCount - roomCount
+    roomCount <- randomRIO (1, objCount - 1)
+    let pkgCount = objCount - roomCount
     connections <- mkRandomPaths (roomCount + 1) (\x -> x - 1)
-    let pkgs = ['o' : show n | n <- [1 .. objCount]]
+    let pkgs = ['o' : show n | n <- [1 .. pkgCount]]
     initState <- genPackages roomCount pkgs
     goalState <- genPackages roomCount pkgs
     closedDoors <- newRandomList (False, True)
