@@ -19,7 +19,11 @@ module HTNTranslation.TranslationOpt (
     deconstructHDomain,
     renderCalls,
     renderCounters,
-    renderInitTask
+    renderInitTask,
+
+    optimizeCallNet,
+    CallNetOptimizer,
+    paramOpt
 ) where
 
 --import Data.Generics (Data, Typeable, Typeable1, Typeable2)
@@ -27,6 +31,7 @@ module HTNTranslation.TranslationOpt (
 --import Data.Set (Set)
 --import qualified Data.Set as Set
 
+import Control.Monad
 import Data.List
 import Data.Maybe
 
@@ -44,6 +49,12 @@ class (Data a, Data t) => HasTaskHead t a where
     setCallTypes ts r = fromJust $ greplace r (CallTypes ts)
 -}
 
+
+type CallNode = (CallDesc, PDDLAction, [CallDesc])
+
+data CallDesc =
+    StackCall StdTask Int -- Stack call with number of needed stack vars
+    deriving Eq
 
 -- Utils
 varId :: (:<:) Var f => Expr Var -> Expr f
@@ -219,10 +230,6 @@ atomicCall (In (Atomic p args)) =
     eAtomic ("start_" ++ p) args
 
 -- Methods for calling tasks
-data CallDesc =
-    StackCall StdTask Int -- Stack call with number of needed stack vars
-    deriving Eq
-
 getCDTask :: CallDesc -> StdTask
 getCDTask (StackCall task _) = task
 
@@ -373,7 +380,6 @@ renderCalls dom callstructs =
     dom
 
 
-type CallNode = (CallDesc, PDDLAction, [CallDesc])
 
 deconstructHDomain ::
     StandardHTNDomain
@@ -385,8 +391,8 @@ deconstructHDomain hdom =
         (freeActions, callstructs) = splitEithers $
             concatMap deconItem $ getItems hdom
         -- mytasks = nub $ map (\(cd, _, _) -> cd) callstructs
-        svars :: [TypedVarExpr]
-        svars@(svar1 : svar2 : _) = 
+        --svars :: [TypedVarExpr]
+        (svar1 :: TypedVarExpr) : svar2 : _ = 
                 map (flip eTyped counterType . (currentT :: Int -> Expr Var)) [1..]
         {-
         tpreds =
@@ -557,3 +563,122 @@ splitEithers = foldr select ([], [])
         select (Right r) (ls, rs) = (ls, r : rs)
 
 
+findTaskNodes :: [CallNode] -> StdTask -> [CallNode]
+findTaskNodes callNet task =
+    filter isTask callNet
+    where
+        isTask (cd, _, _) = 
+            taskName task == taskName (getCDTask cd)
+
+findTaskCallers :: StdTask -> [CallNode] -> [(CallNode, [Int])]
+findTaskCallers task =
+    filter (\ (_, pl) -> not $ null pl) .
+    map taskPositions
+    where
+        taskPositions cn@(_, _, cdl) =
+            (cn, map fst $ filter (isTask . snd) $ zip [0..] cdl)
+        isTask cdesc = taskName task == taskName (getCDTask cdesc)
+
+type CallNetOptimizer = [CallNode] -> Maybe [CallNode]
+
+optimizeCallNet :: [CallNetOptimizer] -> [CallNode] -> [CallNode]
+optimizeCallNet opts callnet =
+    maybe callnet (optimizeCallNet opts) $
+    findOpt opts
+    where
+        findOpt :: [CallNetOptimizer] -> Maybe [CallNode]
+        findOpt [] = Nothing
+        findOpt (opt : l) =
+            maybe (findOpt l) Just $
+            opt callnet
+
+
+
+
+{-
+Parameter optimization:
+Eliminate extraneous parameters from task calls and actions.
+We can eliminate a parameter from a call node iff both:
+ - It's not used in a call
+ - It's not used in a precondition or effect
+-}
+
+unusedTerm :: 
+    CallNode -> TermExpr -> Bool
+unusedTerm (_, action, calls) term =
+    let 
+        precondAtoms = maybe [] findAtoms $ getPrecondition action
+        effectAtoms  = maybe [] findAtoms $ getEffect action
+        inAction = term `elem` concatMap taskArgs (precondAtoms ++ effectAtoms)
+        inCall = term `elem` concatMap (taskArgs . getCDTask) calls
+    in
+    not $ inAction || inCall
+
+unusedParams ::
+    CallNode -> [Int]
+unusedParams cn@(call, _, _) =
+    map fst $
+    filter (unusedTerm cn . snd) $
+    zip [0..] $
+    taskArgs $
+    getCDTask call
+
+
+removeParams :: CallDesc -> [Int] -> CallDesc
+removeParams (StackCall task sn) remList =
+    flip StackCall sn $
+    eAtomic (taskName task) $
+    map snd $
+    filter (flip elem remList . fst) $
+    zip [0..] $
+    taskArgs task
+
+shortenCall :: String -> [Int] -> [CallNode] -> [CallNode]
+shortenCall target remList callnet =
+    map shorten callnet
+    where
+        shorten (tdesc, action, cdescs) =
+            (matchShorten tdesc, action, map matchShorten cdescs)
+        matchShorten desc
+            | target == taskName (getCDTask desc) = removeParams desc remList
+            | otherwise = desc
+
+paramOpt :: CallNetOptimizer 
+paramOpt calls =
+    let
+        toOpt = map (\cn -> (cn, unusedParams cn)) calls
+    in
+    if null (filter (not . null . snd) toOpt) then
+        Nothing
+    else
+        Just $
+        foldl 
+        (\calls' ((cd, _, _), remList) -> shortenCall (taskName $ getCDTask cd) remList calls')
+        calls
+        toOpt
+
+
+{-
+Head to Tail Node Collapsing:
+
+A calling node can be collapsed into the 
+ - Either Calling's effects and preconds are empty or Called's effects and preconds are
+ - No other nodes call Called
+
+-}
+
+
+{-
+Inlining
+
+-}
+buildInlineChain :: (Monad m) => [CallNode] -> CallNode -> m CallNode
+buildInlineChain callNet node@(cd, action, cdl) = do
+    when (not isEndPoint) $ fail "Not endpoint."
+    return node
+    where
+        isEndPoint
+            | not (null cdl) = False
+            | length (findTaskNodes callNet $ getCDTask cd) > 1 = False
+            | otherwise = True 
+            
