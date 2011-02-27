@@ -71,7 +71,7 @@ applyMTyper :: (HasActions m d) =>
 applyMTyper f tm =
     foldl f tm . getActions
 
-class TypeAspect t where
+class (Functor t) => TypeAspect t where
     baseType' :: t e
     addType' :: t e -> t e -> t e
     isType' :: t e -> t e -> Bool
@@ -83,13 +83,16 @@ deriving instance (Eq (t (FullType t))) => Eq (FullType t)
 
 addType :: TypeAspect f => FullType f -> FullType f -> FullType f
 addType (FTIn f1) (FTIn f2) = FTIn $ addType' f1 f2
-isType :: TypeAspect f => FullType f -> FullType f -> Bool
-isType (FTIn f1) (FTIn f2) = isType' f1 f2
+isType :: (Eq (FullType f), TypeAspect f) => FullType f -> FullType f -> Bool
+isType f1 = (== f1) . addType f1
 baseType :: TypeAspect f => FullType f
 baseType = FTIn baseType'
 
 infixr 6 ::+::
 data (f ::+:: g) e = TIn (f e) (g e) deriving (Eq, Show)
+
+instance (Functor f, Functor g) => Functor (f ::+:: g) where
+    fmap f (TIn f1 g2) = TIn (fmap f f1) (fmap f g2)
 
 instance (TypeAspect f, TypeAspect g) => TypeAspect (f ::+:: g) where
     baseType' = TIn baseType' baseType'
@@ -113,11 +116,13 @@ instance (TypeAspect f, TypeAspect g) => (::<::) f (f ::+:: g) where
 instance (TypeAspect f, TypeAspect g, TypeAspect h, (::<::) f g) 
     => (::<::) f (h ::+:: g) where
     tinj = TIn baseType' . tinj
-    
+
 
 data CallSpots e = 
     CallSpots  (Set (String, Int)) 
     deriving (Eq, Show)  
+instance Functor CallSpots where
+    fmap _ (CallSpots cs) = CallSpots cs
 instance TypeAspect CallSpots where
     baseType' = CallSpots (Set.empty)
     isType' (CallSpots t1) (CallSpots t2) = t1 `Set.isSubsetOf` t2 
@@ -146,6 +151,9 @@ data Primitiveness e =
     PrimitiveTask
     | NonPrimitiveTask
     deriving (Eq, Ord, Show)
+instance Functor Primitiveness where
+    fmap _ PrimitiveTask = PrimitiveTask
+    fmap _ NonPrimitiveTask = NonPrimitiveTask
 instance TypeAspect Primitiveness where
     baseType' = PrimitiveTask
     isType' t1 t2 = t1 <= t2
@@ -173,6 +181,11 @@ data LastPosition e =
     | LastPosition
     | BothPosition
     deriving (Eq, Show)
+instance Functor LastPosition where
+    fmap _ NoPosition = NoPosition
+    fmap _ NotLastPosition = NotLastPosition
+    fmap _ LastPosition = LastPosition
+    fmap _ BothPosition = BothPosition
 instance TypeAspect LastPosition where
     baseType' = NoPosition
     isType' NoPosition _ = True
@@ -217,6 +230,11 @@ data ParentPosition e =
     | PLastPosition
     | PBothPosition
     deriving (Eq, Show)
+instance Functor ParentPosition where
+    fmap _ PNoPosition = PNoPosition
+    fmap _ PNotLastPosition = PNotLastPosition
+    fmap _ PLastPosition = PLastPosition
+    fmap _ PBothPosition = PBothPosition
 instance TypeAspect ParentPosition where
     baseType' = PNoPosition
     isType' PNoPosition _ = True

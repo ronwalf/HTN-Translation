@@ -17,6 +17,7 @@
 module HTNTranslation.HTNPDDL (
     module Planning.PDDL.PDDL3_0,
     StandardHTNDomain,
+    HDomain(..), emptyHDomain,
     Method(..), StandardMethod,
     TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
     TaskList, TaskLists, TaskConstraint, TaskConstraints,

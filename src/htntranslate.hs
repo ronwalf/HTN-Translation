@@ -20,6 +20,7 @@ import System.Exit
 import System.IO
 
 import HTNTranslation.HTNPDDL
+import HTNTranslation.Translation
 import HTNTranslation.Typing
 
 data Options = Options
@@ -77,6 +78,12 @@ main = do
         putStrLn "Task types:"
         mapM_ (\(t, tt) -> putStrLn $ t ++ ": " ++ show tt) $ Map.toList typemap 
         
+    let tdomain = translateDomain emptyDomain domain
+            [ translateUncontrolled 
+                defaultAction -- :: StandardMethod -> StateT PDDLDomain Maybe ()
+            , translateAction defaultAction
+            ]
+    
     return ()
 
 {-
