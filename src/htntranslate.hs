@@ -12,6 +12,73 @@
   #-}
 module Main where
 
+import Control.Monad
+import qualified Data.Map as Map
+import System.Console.GetOpt
+import System.Environment
+import System.Exit
+import System.IO
+
+import HTNTranslation.HTNPDDL
+import HTNTranslation.Typing
+
+data Options = Options
+    { optNumIds :: Int
+    , optVerbose :: Bool
+    }
+
+defaultOptions :: Options
+defaultOptions = Options
+    { optNumIds = 0
+    , optVerbose = False
+    }
+  
+options :: [OptDescr (Options -> IO Options)]
+options = 
+    [ Option ['i']  ["identifiers"]
+        (ReqArg (\n opts -> do
+            case (reads n) of
+                [(ids, "")] -> return $ opts { optNumIds = ids}
+                _ -> fail "Cannot parse number of identifiers")
+         "NUM")
+         "number of identifiers"
+    , Option ['v'] ["verbose"]
+        (NoArg (\opts -> return $ opts { optVerbose = True }))
+        "verbose"
+    ]
+
+errCheck :: (Show t) => Either t b -> IO b
+errCheck (Left err) = do
+    hPrint stderr err
+    exitFailure 
+errCheck (Right prob) = return prob
+
+main :: IO ()
+main = do
+    argv <- getArgs
+    (opts, domFile, probFiles) <- case getOpt Permute options argv of
+        (o,dom:files,[]) -> do
+            opts <- foldM (\opts f -> f opts) defaultOptions o
+            return (opts, dom, files)
+        (_, _, errs) -> 
+            ioError $ userError $
+            concat errs 
+            ++ usageInfo "Usage: htntranslate [OPTION...] domain files..." options
+    domContents <- readFile domFile
+    domain <- errCheck $ parseHTNPDDL domFile domContents
+    when (optVerbose opts) $ do
+        putStrLn "Parsed domain:"
+        putStrLn $ show domain
+        putStrLn ""
+    let typemap = findTypes 
+            [callSpotTyper, lastPositionTyper, primitiveTyper, parentPositionTyper]
+            domain
+    when (optVerbose opts) $ do
+        putStrLn "Task types:"
+        mapM_ (\(t, tt) -> putStrLn $ t ++ ": " ++ show tt) $ Map.toList typemap 
+        
+    return ()
+
 {-
 import Control.Monad
 import Data.List
@@ -192,6 +259,3 @@ main = do
     writeFile domFile' $ show $ setPredicates preds dom
     return ()
 -}
-
-main :: IO ()
-main = return ()

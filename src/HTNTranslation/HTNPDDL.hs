@@ -20,12 +20,14 @@ module HTNTranslation.HTNPDDL (
     Method(..), StandardMethod,
     TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
     TaskList, TaskLists, TaskConstraint, TaskConstraints,
-    HasTaskLists, HasTaskConstraints,
-    taskName, taskArgs, StdTask, StdTaskHead,
-    enumerateTasks,
+    HasTaskLists(..), HasTaskConstraints,
+    taskName, taskArgs, StdTask, StdTaskHead, StdTaskDef,
+    enumerateTasks, numberTasks,
+    findFirstTask, findLastTask,
     parseHTNPDDL
 ) where
 
+import Control.Monad.State
 import Data.List
 import Data.Generics (Data, Typeable, Typeable2)
 import Data.Maybe
@@ -57,9 +59,9 @@ instance (Data a, Data b) => HasTaskHead [StdTaskDef] (HDomain a b)
 instance (Data a, Data b) => HasFunctions TypedFuncExpr (HDomain a b)
 instance (Data a, Data b) => HasConstraints a (HDomain a b)
 instance (Data a, Data b) => HasActions b (HDomain a b)
-instance (Data (Expr a), Data (Expr b), PDDLDocExpr a, PDDLDocExpr b) =>
-    Show (HDomain (Expr a) (Expr b)) where
-    show domain = show $ parens $ ($$) (text "define") $ vcat $
+instance (Data a, Data b, PDDLDoc a, PDDLDoc b) =>
+    PDDLDoc (HDomain a b) where
+    pddlDoc domain = parens $ ($$) (text "define") $ vcat $
         parens (text "domain" <+> text (getName domain)) :
          -- Requirement strings are prefixed with ':'
         (if (null $ getRequirements domain) then empty else parens
@@ -67,14 +69,17 @@ instance (Data (Expr a), Data (Expr b), PDDLDocExpr a, PDDLDocExpr b) =>
              map (text . (':':)) $
              "requirements" : getRequirements domain)) :
         parens (sep $ (text ":types") :
-            [pddlDocExpr t | (In t) <- getTypes domain]) :
+            [pddlDoc t | t <- getTypes domain]) :
         parens (sep $ (text ":predicates") :
-            [pddlDocExpr p | (In p) <- getPredicates domain]) :
+            [pddlDoc p | p <- getPredicates domain]) :
         parens (sep $ (text ":tasks") :
-            [pddlDocExpr p | (In p) <- getTaskHead domain]) :
+            [pddlDoc p | p <- getTaskHead domain]) :
         space :
         intersperse space [pddlDoc x | x <- getActions domain]
 
+instance (Data a, Data b, PDDLDoc a, PDDLDoc b) => Show (HDomain a b) where
+    show domain = show $ pddlDoc domain
+    
 emptyHDomain :: forall a b. HDomain a b
 emptyHDomain = HDomain
     (Name "empty")
@@ -102,6 +107,7 @@ class (Data a, Data f) => HasTaskHead f a | a -> f where
     setTaskHead h r = fromJust $ greplace r (TaskHead h)
 
 type TaskList = (Maybe String, [Expr PDDLAtom])
+type NumberedTaskList = (Maybe String, [(Int, Expr PDDLAtom)])
 taskName :: Expr (Atomic t) -> String
 taskName (In (Atomic p _)) = p
 taskArgs :: Expr (Atomic t) -> [t]
@@ -116,10 +122,27 @@ class (Data f) => HasTaskLists f where
     setTaskLists :: [TaskList] -> f -> f
     setTaskLists tl f = fromJust $ greplace f (TaskLists tl)
 
+ 
+-- Courtesy of Saizan (freenode #haskell)
+numberTasks :: HasTaskLists m => m -> [NumberedTaskList]
+numberTasks m =
+    let next = do 
+        n <- get
+        put $ n+1
+        return n
+    in 
+    flip evalState 0 $ 
+    flip mapM (getTaskLists m) $ \(name, tasks) -> do
+        tasks' <- flip mapM tasks $ \x -> do
+            n <- next
+            return (n, x)
+        return (name, tasks')
 
 enumerateTasks :: HasTaskLists m => m -> [(Int, Expr PDDLAtom)]
-enumerateTasks =
-    zip [0..] . concatMap snd . getTaskLists
+enumerateTasks = concatMap snd . numberTasks    
+    
+--findPrecursor :: (HasTaskLists m, HasTaskConstraints m) =>
+--    Int -> m -> [ 
 
 type TaskConstraint = (String, String)
 data TaskConstraints = TaskConstraints [TaskConstraint] deriving (Data, Eq, Typeable)
@@ -130,7 +153,31 @@ class (Data f) => HasTaskConstraints f where
     getTaskConstraints = unTaskConstraints . fromJust . gfind
     setTaskConstraints :: [TaskConstraint] -> f -> f
     setTaskConstraints tc f = fromJust $ greplace f (TaskConstraints tc)
-    
+
+findFirstTask :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> Maybe (Int, Expr PDDLAtom)
+findFirstTask m =
+    case winnow (getTaskConstraints m) (numberTasks m) of
+        [(_, h : _)] -> Just h
+        _ -> Nothing
+    where
+        winnow [] tl = tl
+        winnow ((_, tlname) : cl) tl =
+            winnow cl $
+            filter (not . (== Just tlname) . fst) tl
+
+findLastTask :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> Maybe (Int, Expr PDDLAtom)
+findLastTask m =
+    case winnow (getTaskConstraints m) (numberTasks m) of
+        [(_, tl@(_ : _))] -> Just $ last tl
+        _ -> Nothing
+    where
+        winnow [] tl = tl
+        winnow ((tlname, _) : cl) tl =
+            winnow cl $
+            filter (not . (== Just tlname) . fst) tl            
+            
 
 type StdTask = Expr (Atomic TermExpr)
 type StdTaskHead = Maybe StdTask 

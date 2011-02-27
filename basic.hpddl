@@ -5,34 +5,33 @@
   (have ?o - OBJ)
   (handempty)
 )
+(:tasks
+  (swap ?x - OBJ ?y - OBJ)
+  (donothing)
+  (pickup ?x - OBJ)
+  (drop ?x - OBJ))
 
-(:method swap
+(:method swap1
  :parameters (?x - OBJ ?y - OBJ)
  :task (swap ?x ?y)
- :precondition ()
- :branches (
-  (:branch forward
-   :precondition (have ?x)
-   :tasks ((drop ?x) (pickup ?y)))
-  (:branch backward
-   :tasks ((drop ?y) (pickup ?x))))
-)
+ :precondition (have ?x)
+ :tasks ((drop ?x) (pickup ?y)))
 
+(:method swap2
+ :parameters (?x - OBJ ?y - OBJ)
+ :task (swap ?x ?y)
+ :precondition (have ?y)
+ :tasks ((drop ?y) (pickup ?x)))
+ 
 (:method donothing
  :parameters (?o - OBJ)
  :task (donothing)
- :precondition ()
- :branches ())
+ :precondition ())
 
 (:method swapswap
- :parameters (?x - OBJ ?y - OBJ)
+ :parameters (?x - OBJ ?y - OBJ ?z - OBJ)
  :task (swap ?x ?y)
- :precondition ()
- :branches (
-  (:branch one
-   :parameters (?z - OBJ)
-   :precondition ()
-   :tasks ((swap ?x ?z)  (swap ?z ?y)))))
+ :tasks ((swap ?x ?z)  (swap ?z ?y)))
 
 (:action pickup
  :parameters (?x - OBJ)
