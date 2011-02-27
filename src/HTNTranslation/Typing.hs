@@ -10,12 +10,13 @@
   #-}
 module HTNTranslation.Typing (
     TypeAspect(..), FullType(..), TaskType,
-    tinject, baseType, addType, isType,
+    tinject, tinspect, baseType, addType, extendsType,
     TypeMap,
     findTypes, Typer,
     
-    CallSpots(..), callSpot, callSpotTyper,
-    Primitiveness(..), primitive, primitiveTyper,
+    CallSpots(..), callSpot, callSpots, callSpotTyper,
+    CallCount(..), callCount, callCounts, callCountTyper,
+    Primitiveness(..), primitive, nonPrimitive, primitiveTyper,
     LastPosition(..), isLast, notLast, lastPositionTyper,
     ParentPosition(..), pIsLast, pNotLast, parentPositionTyper
 ) where
@@ -30,7 +31,7 @@ import HTNTranslation.HTNPDDL
 
 
 type TaskType = FullType 
-    (CallSpots ::+:: LastPosition ::+:: ParentPosition ::+:: Primitiveness)
+    (CallSpots ::+:: CallCount ::+:: LastPosition ::+:: ParentPosition ::+:: Primitiveness)
 type TypeMap = Map String TaskType
 
 findTypes :: (
@@ -74,7 +75,6 @@ applyMTyper f tm =
 class (Functor t) => TypeAspect t where
     baseType' :: t e
     addType' :: t e -> t e -> t e
-    isType' :: t e -> t e -> Bool
 
 newtype FullType t = FTIn (t (FullType t))
 deriving instance (Show (t (FullType t))) => Show (FullType t)
@@ -83,8 +83,8 @@ deriving instance (Eq (t (FullType t))) => Eq (FullType t)
 
 addType :: TypeAspect f => FullType f -> FullType f -> FullType f
 addType (FTIn f1) (FTIn f2) = FTIn $ addType' f1 f2
-isType :: (Eq (FullType f), TypeAspect f) => FullType f -> FullType f -> Bool
-isType f1 = (== f1) . addType f1
+extendsType :: (Eq (FullType f), TypeAspect f) => FullType f -> FullType f -> Bool
+extendsType f1 = (== f1) . addType f1
 baseType :: TypeAspect f => FullType f
 baseType = FTIn baseType'
 
@@ -97,25 +97,31 @@ instance (Functor f, Functor g) => Functor (f ::+:: g) where
 instance (TypeAspect f, TypeAspect g) => TypeAspect (f ::+:: g) where
     baseType' = TIn baseType' baseType'
     addType' (TIn f1 g1) (TIn f2 g2) = TIn (addType' f1 f2) (addType' g1 g2)
-    isType' (TIn f1 g1) (TIn f2 g2) = isType' f1 f2 && isType' g1 g2
 
 
 class (TypeAspect sub, TypeAspect sup) => sub ::<:: sup where
     tinj :: sub a -> sup a
+    tinsp :: sup a -> sub a
 
 tinject :: (g ::<:: f) => g (FullType f) -> FullType f
 tinject = FTIn . tinj
 
+tinspect :: (g ::<:: f) => FullType f -> g (FullType f)
+tinspect (FTIn f) = tinsp f
+
 
 instance TypeAspect f => (::<::) f f where
     tinj = id
+    tinsp = id
     
 instance (TypeAspect f, TypeAspect g) => (::<::) f (f ::+:: g) where
     tinj = flip TIn baseType'
+    tinsp (TIn f _) = f
 
 instance (TypeAspect f, TypeAspect g, TypeAspect h, (::<::) f g) 
     => (::<::) f (h ::+:: g) where
     tinj = TIn baseType' . tinj
+    tinsp (TIn _ g) = tinsp g
 
 
 data CallSpots e = 
@@ -125,13 +131,16 @@ instance Functor CallSpots where
     fmap _ (CallSpots cs) = CallSpots cs
 instance TypeAspect CallSpots where
     baseType' = CallSpots (Set.empty)
-    isType' (CallSpots t1) (CallSpots t2) = t1 `Set.isSubsetOf` t2 
     addType' (CallSpots t1) (CallSpots t2) =
         CallSpots $ Set.union t1 t2
 callSpot :: (CallSpots ::<:: f) =>
     String -> Int -> FullType f
 callSpot caller position =
     tinject $ CallSpots $ Set.singleton (caller, position)
+callSpots :: (CallSpots ::<:: f) =>
+    FullType f -> [(String, Int)]
+callSpots = (\(CallSpots cs) -> Set.toList cs) . tinspect
+
 
 callSpotMTyper ::
     (HasName m, HasTaskLists m) =>
@@ -147,6 +156,25 @@ callSpotTyper ::
 callSpotTyper = applyMTyper callSpotMTyper
 
 
+data CallCount e =
+    CallCount Int
+    deriving (Eq, Ord, Show)
+instance Functor CallCount where
+    fmap _ (CallCount n) = CallCount n
+instance TypeAspect CallCount where
+    baseType' = CallCount 0
+    addType' (CallCount n1) (CallCount n2) = CallCount $ max n1 n2
+callCount :: forall f . (CallCount ::<:: f) => Int -> FullType f
+callCount = tinject . CallCount
+callCounts :: forall f . (CallCount ::<:: f) => FullType f -> Int
+callCounts = (\(CallCount n) -> n) . tinspect 
+
+callCountTyper :: Typer d
+callCountTyper tm _ =
+    flip Map.mapWithKey tm 
+    (\ task t -> addType t $ callCount $ (\(CallSpots cs) -> Set.size cs) $ tinspect t)
+    
+
 data Primitiveness e =
     PrimitiveTask
     | NonPrimitiveTask
@@ -156,12 +184,13 @@ instance Functor Primitiveness where
     fmap _ NonPrimitiveTask = NonPrimitiveTask
 instance TypeAspect Primitiveness where
     baseType' = PrimitiveTask
-    isType' t1 t2 = t1 <= t2
     addType' t1 t2
         | t1 == t2 = t1
         | otherwise = NonPrimitiveTask
 primitive :: forall f . (Primitiveness ::<:: f) => FullType f 
 primitive = tinject PrimitiveTask
+nonPrimitive :: forall f . (Primitiveness ::<:: f) => FullType f 
+nonPrimitive = tinject NonPrimitiveTask
 
 primitiveMTyper :: (HasTaskHead StdTaskHead m, HasTaskLists m) => Typer m
 primitiveMTyper tm m = case (getTaskHead m, getTaskLists m) of
@@ -188,11 +217,6 @@ instance Functor LastPosition where
     fmap _ BothPosition = BothPosition
 instance TypeAspect LastPosition where
     baseType' = NoPosition
-    isType' NoPosition _ = True
-    isType' _ BothPosition = True
-    isType' NotLastPosition NotLastPosition = True
-    isType' LastPosition LastPosition = True
-    isType' _ _ = False
     addType' NoPosition x = x
     addType' x NoPosition = x
     addType' NotLastPosition NotLastPosition = NotLastPosition
@@ -204,6 +228,8 @@ isLast :: forall f . (LastPosition ::<:: f) => FullType f
 isLast = tinject LastPosition        
 notLast :: forall f . (LastPosition ::<:: f) => FullType f
 notLast = tinject NotLastPosition
+bothPosition :: forall f . (LastPosition ::<:: f) => FullType f
+bothPosition = tinject BothPosition
 
 lastPositionMTyper :: (HasTaskLists m, 
     HasTaskConstraints m) => Typer m
@@ -237,11 +263,6 @@ instance Functor ParentPosition where
     fmap _ PBothPosition = PBothPosition
 instance TypeAspect ParentPosition where
     baseType' = PNoPosition
-    isType' PNoPosition _ = True
-    isType' _ PBothPosition = True
-    isType' PNotLastPosition PNotLastPosition = True
-    isType' PLastPosition PLastPosition = True
-    isType' _ _ = False
     addType' PNoPosition x = x
     addType' x PNoPosition = x
     addType' PNotLastPosition PNotLastPosition = PNotLastPosition
@@ -265,10 +286,10 @@ parentPositionMTyper initTM m =
             task <- getTaskHead m
             Map.lookup (taskName task) initTM
         subt :: TaskType
-        subt = if isType taskt noPosition then pNoPosition
-            else if isType taskt isLast then pIsLast
-            else if isType taskt notLast then pNotLast
-            else pBothPosition
+        subt = if extendsType taskt bothPosition then pBothPosition
+            else if extendsType taskt isLast then pIsLast
+            else if extendsType taskt notLast then pNotLast
+            else pNoPosition
         subtasks = enumerateTasks m
     in
     foldl (\tm (_, task) -> updateMap (taskName task) subt tm) initTM subtasks

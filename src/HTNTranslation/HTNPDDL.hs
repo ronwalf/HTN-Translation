@@ -18,14 +18,16 @@ module HTNTranslation.HTNPDDL (
     module Planning.PDDL.PDDL3_0,
     StandardHTNDomain,
     HDomain(..), emptyHDomain,
-    Method(..), StandardMethod,
+    StandardHTNProblem,
+    HProblem(..), emptyHProblem,
+    Method(..), StandardMethod, defaultMethod,
     TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
-    TaskList, TaskLists, TaskConstraint, TaskConstraints,
-    HasTaskLists(..), HasTaskConstraints,
+    TaskList, TaskLists, TaskConstraint, TaskConstraints, 
+    HasTaskLists(..), HasTaskConstraints(..),
     taskName, taskArgs, StdTask, StdTaskHead, StdTaskDef,
     enumerateTasks, numberTasks,
-    findFirstTask, findLastTask,
-    parseHTNPDDL
+    findFirstTask, findLastTask, findLastTasks, findNextTasks, findPrevTasks,
+    parseHTNPDDL, parseHTNProblem
 ) where
 
 import Control.Monad.State
@@ -95,8 +97,63 @@ emptyHDomain = HDomain
 
 
 type StandardHTNDomain = HDomain ConstraintGDExpr StandardMethod
+type StandardHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr ConstraintGDExpr (Expr (Atomic ConstTermExpr))
+
 --deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
+data HProblem a b c t = HProblem
+    Name
+    DomainName
+    Requirements
+    (Constants TypedConstExpr)
+    (Initial a)
+    (TaskHead (Maybe t))
+    (Goal b)
+    (Constraints c)
+    deriving (Data, Eq, Typeable)
+
+
+instance (Data a, Data b, Data c, Data t) => HasName (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasDomainName (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasRequirements (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasConstants TypedConstExpr (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasInitial a (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasTaskHead (Maybe t) (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasGoal b (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasConstraints c (HProblem a b c t)
+
+--instance 
+--    (Data (Expr a), Data (Expr b), Data (Expr c),
+--     PDDLDocExpr a, PDDLDocExpr b, PDDLDocExpr c) =>
+--    Show (HProblem (Expr a) (Expr b) (Expr c)) where
+instance (Data a, Data b, Data c, Data t,
+        PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDoc t) =>
+        PDDLDoc (HProblem a b c t) where
+    pddlDoc prob = parens $ sep $
+        text "define" :
+        (parens $ text "problem" <+> (text $ getName prob)) :
+        (parens $ text ":domain" <+> (text $ getDomainName prob)) :
+        (if null $ getRequirements prob then empty else 
+           (parens $ sep $ text ":requirements" : map (text . (':':)) (getRequirements prob))) :
+        docNonEmpty ":objects" (getConstants prob) :
+        docNonEmpty ":init" (getInitial prob) :
+        maybe empty (\x -> parens $ sep [text ":task", pddlDoc x]) (getTaskHead prob):
+        maybe empty (\x -> parens $ sep [text ":goal", pddlDoc x]) 
+            (getGoal prob) :
+        docMaybe ":constraints" (getConstraints prob) : []
+
+       
+    
+emptyHProblem :: forall a b c t. HProblem a b c t
+emptyHProblem = HProblem
+    (Name "empty")
+    (DomainName "empty")
+    (Requirements [])
+    (Constants [])
+    (Initial [])
+    (TaskHead Nothing)
+    (Goal Nothing)
+    (Constraints Nothing)
 
 data TaskHead f = TaskHead f deriving (Data, Eq, Typeable)
 unTaskHead :: TaskHead t -> t
@@ -167,18 +224,75 @@ findFirstTask m =
             winnow cl $
             filter (not . (== Just tlname) . fst) tl
 
-findLastTask :: (HasTaskLists m, HasTaskConstraints m) =>
-    m -> Maybe (Int, Expr PDDLAtom)
-findLastTask m =
-    case winnow (getTaskConstraints m) (numberTasks m) of
-        [(_, tl@(_ : _))] -> Just $ last tl
-        _ -> Nothing
+findLastTasks :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> [(Int, Expr PDDLAtom)]
+findLastTasks m =
+    map (last . snd) $
+    winnow (getTaskConstraints m) (numberTasks m)
     where
+        winnow :: [(String, String)] -> [(Maybe String, [(Int, Expr PDDLAtom)])] -> [(Maybe String, [(Int, Expr PDDLAtom)])]
         winnow [] tl = tl
         winnow ((tlname, _) : cl) tl =
             winnow cl $
-            filter (not . (== Just tlname) . fst) tl            
-            
+            filter (not . (== Just tlname) . fst) tl
+
+findLastTask :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> Maybe (Int, Expr PDDLAtom)
+findLastTask m =
+    case findLastTasks m of 
+        [t] -> Just t
+        _ -> Nothing
+
+findPrevTasks :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> Int -> [(Int, Expr PDDLAtom)]
+findPrevTasks m n =
+    let
+        tasks = numberTasks m
+    in
+    case tcontext tasks of
+    Left t -> [t]
+    Right Nothing -> []
+    Right (Just tlname) -> 
+        concatMap (\(prevname, _) -> map (last . snd) $ filter ((== Just prevname) . fst) tasks) $
+        filter ((== tlname) . snd) $
+        getTaskConstraints m
+    where
+        tcontext :: [(Maybe String, [(Int, Expr PDDLAtom)])] -> Either (Int, Expr PDDLAtom) (Maybe String)
+        tcontext [] = Right Nothing
+        tcontext ((_, []) : tl) = tcontext tl
+        tcontext ((name, [(tn, _)]) : tl)
+            | tn == n = Right name
+            | otherwise = tcontext tl
+        tcontext ((name, pnt@(pn, _) : tnt@(tn,_) : ttl) : tl)
+            | pn == n = Right name
+            | tn == n = Left pnt
+            | otherwise = tcontext $ (name, tnt : ttl) : tl
+
+findNextTasks :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> Int -> [(Int, Expr PDDLAtom)]
+findNextTasks m n =
+    let
+        tasks = numberTasks m
+    in
+    case tcontext tasks of
+    Left t -> [t]
+    Right Nothing -> []
+    Right (Just tlname) -> 
+        concatMap (\(_, nextname) -> map (head . snd) $ 
+            filter (not . null . snd) $
+            filter ((== Just nextname) . fst) tasks) $
+        filter ((== tlname) . fst) $
+        getTaskConstraints m
+    where
+        tcontext :: [(Maybe String, [(Int, Expr PDDLAtom)])] -> Either (Int, Expr PDDLAtom) (Maybe String)
+        tcontext [] = Right Nothing
+        tcontext ((_, []) : tl) = tcontext tl
+        tcontext ((name, [(tn, _)]) : tl)
+            | tn == n = Right name
+            | otherwise = tcontext tl
+        tcontext ((name, (pn, _) : tnt : ttl) : tl)
+            | pn == n = Left tnt 
+            | otherwise = tcontext $ (name, tnt : ttl) : tl
 
 type StdTask = Expr (Atomic TermExpr)
 type StdTaskHead = Maybe StdTask 
@@ -206,9 +320,9 @@ instance (Data c, Data e) => HasTaskLists (Method c e)
 instance (Data c, Data e) => HasTaskConstraints (Method c e)
 
 defaultMethod :: forall c e. Method c e
-defaultMethod = Method undefined 
+defaultMethod = Method (Name "")
     (Parameters [])
-    undefined
+    (TaskHead Nothing)
     (Precondition Nothing)
     (Effect Nothing)
     (TaskLists [])
@@ -258,6 +372,20 @@ htnParser = let
     in
     domainParser mylex (hDomainInfoParser mylex constraintP) actions
 
+htnProblemParser :: GenParser Char StandardHTNProblem StandardHTNProblem
+htnProblemParser = 
+    let
+        stateP = T.parens htnLexer $ initLiteralParser pddlLexer :: CharParser StandardHTNProblem InitLiteralExpr 
+        goalP = prefGDParser pddlLexer :: CharParser StandardHTNProblem PreferenceGDExpr
+        constraintP = constraintGDParser pddlLexer :: CharParser StandardHTNProblem ConstraintGDExpr
+        taskP =  do
+            try $ T.reserved htnLexer ":task"
+            task <- T.parens htnLexer (atomicParser htnLexer (constTermParser htnLexer))
+            updateState (setTaskHead $ Just task)
+        infoP = taskP <|> problemInfoParser htnLexer stateP goalP constraintP
+    in
+    problemParser htnLexer infoP
+
 hDomainInfoParser :: (HasRequirements st,
         HasTypes TypedConstExpr st,
         HasConstants TypedConstExpr st,
@@ -276,34 +404,6 @@ hDomainInfoParser mylex condParser =
     <|>
     domainInfoParser mylex condParser
 
-{-
-hActionParser :: (Data p, Data e, HasActions (Expr f) st,
-    DomainItem (HAction p e) :<: f) =>
-    T.TokenParser st -> CharParser st p -> CharParser st e -> CharParser st ()
-hActionParser mylex condParser effParser = do
-    let infoParser = hActionInfoParser mylex condParser effParser
-    try $ T.reserved mylex ":action"
-    name <- T.identifier mylex
-    updates <- many infoParser
-    let action = foldl (\ a t -> t a) (setName name defaultHAction) updates
-    updateState (\d -> setActions (domainItem action : getActions d) d)
-
-hActionInfoParser :: (HasParameters TypedVarExpr a,
-    HasTaskHead (Maybe (Expr f)) a,
-    HasPrecondition b a,
-    HasEffect c a,
-    Atomic TermExpr :<: f) =>
-    T.TokenParser st -> CharParser st b -> CharParser st c -> CharParser st (a -> a)
-hActionInfoParser mylex condParser effParser =
-    paramParser mylex
-    <|>
-    taskHeadParser mylex
-    <|>
-    precondParser mylex condParser
-    <|>
-    effectParser mylex effParser
--}
-    
 
 methodParser :: forall st p e .
     (HasActions (Method p e) st,
@@ -343,11 +443,6 @@ methodInfoParser mylex condParser effParser =
     <|>
     taskConstraintParser mylex
     
---    <|>
---    (do
---        try $ T.reserved mylex ":branches"
---        bl <- T.parens mylex $ many $ branchParser mylex condParser
---        return $ setBranches bl)
 
 taskHeadParser :: (Atomic TermExpr :<: f,
         HasTaskHead (Maybe (Expr f)) a) =>
@@ -390,3 +485,9 @@ taskParser mylex = do
 parseHTNPDDL :: SourceName -> String -> Either ParseError StandardHTNDomain
 parseHTNPDDL source input =
     runParser htnParser emptyHDomain source input
+
+parseHTNProblem :: SourceName -> String -> Either ParseError StandardHTNProblem
+parseHTNProblem source input =
+    runParser htnProblemParser emptyHProblem source input
+
+   
