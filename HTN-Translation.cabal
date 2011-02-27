@@ -1,5 +1,5 @@
 Name:		HTNTranslation
-Version:	0.1
+Version:	0.2
 Cabal-Version:  >= 1.2
 Build-Type:     Simple
 License:	BSD3
@@ -9,11 +9,13 @@ Homepage:	http://www.cs.umd.edu/~ronwalf/software/planning/
 Category:	AI
 Synopsis:	A library for translating HTNs into PDDL domains
 
+
 Executable htntranslate 
     Main-Is: htntranslate.hs
     Build-Depends:
         base >= 4 && < 5,
         parsec >= 2.1.0.1 && < 3
+    Hs-Source-Dirs: src
     GHC-Options:
         -O
 
@@ -24,9 +26,9 @@ Library
         parsec >= 2.1.0.1 && < 3,
         pretty >= 1.0.1.0 && < 2,
         containers >= 0.2.0.0 && < 0.5,
-        Planning == 0.1
-  Exposed-modules:
-        HTNTranslation.HTNPDDL, HTNTranslation.TranslationOpt
+        Planning == 0.2
+  Exposed-modules:HTNTranslation.HTNPDDL, HTNTranslation.Translation, HTNTranslation.Typing
+  Hs-Source-Dirs: src
   ghc-options:
         -O -Wall
 

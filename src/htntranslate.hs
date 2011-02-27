@@ -12,6 +12,7 @@
   #-}
 module Main where
 
+{-
 import Control.Monad
 import Data.List
 import Data.Maybe
@@ -22,7 +23,7 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Token
 
 import HTNTranslation.HTNPDDL
-import HTNTranslation.TranslationOpt
+import HTNTranslation.Translation
 import Planning.PDDL.Parser
 
 class Functor f => AtomicFinder t f where
@@ -190,3 +191,7 @@ main = do
             getPredicates dom
     writeFile domFile' $ show $ setPredicates preds dom
     return ()
+-}
+
+main :: IO ()
+main = return ()
