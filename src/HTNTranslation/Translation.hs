@@ -62,6 +62,12 @@ runningIdP runId = eAtomic "htn_running_id" [runId]
 -- Utilities --
 ---------------
 
+taskDef :: (HasTaskHead [StdTaskDef] sdom) => sdom -> Expr (Atomic t) -> StdTaskDef
+taskDef sdom t =
+    case find ((== taskName t) . taskName) (getTaskHead sdom) of
+        Just td -> td
+        Nothing -> error ("Cannot find definition for task " ++ taskName t)
+
 -- Translation state
 data TranslationData sdom template = TranslationData
     { tdSDom :: sdom
@@ -175,10 +181,6 @@ translateTaskP useId tasks domain =
     setTypes types $
     setPredicates preds $
     domain
-    where
-        transTask t
-            | useId $ taskName t = taskP (taskName t) (taskArgs t) $ Just $ htnIdP 1
-            | otherwise = taskP (taskName t) (taskArgs t) Nothing
 
 ---------------------
 -- Translate problem
@@ -293,16 +295,64 @@ usePLastId tm =
     flip extendsType pNotLast .
     flip (Map.findWithDefault baseType) tm
 
+   
 -------------------
--- Collapsable test
+-- Collapsable tests
 -------------------
-canCollapse :: TypeMap -> Expr (Atomic t) -> Bool
-canCollapse tm task =
-    let 
-        ttype = flip (Map.findWithDefault baseType) tm $ taskName task
-    in
-    (not $ ttype `extendsType` nonPrimitive) 
-    && callCounts ttype == 1
+{-
+canHCMethod :: (
+    --MonadState (dom, TranslationData sdom template) m
+    --, HasActions action sdom
+    HasPrecondition pre action
+    , HasEffect eff action
+    , HasTaskLists action
+    , HasTaskConstraints action
+    ) => action -> Bool
+canHCMethod m =
+    isNothing (getPrecondition m)
+    && isNothing (getEffect m)
+    && isJust (findFirstTask m)
+
+canHCTask :: forall m dom sdom template action pre eff t .
+    ( MonadState (dom, TranslationData sdom template) m
+    , HasActions action sdom
+    , HasName action
+    , HasPrecondition pre action
+    , HasEffect eff action
+    , HasTaskLists action
+    , HasTaskConstraints action
+    ) => Expr (Atomic t) -> m Bool
+canHCTask task = do
+    tm <- getTypeMap
+    sdom <- getSDomain
+    let ttype = flip (Map.findWithDefault baseType) tm $ taskName task
+    let methods = catMaybes $ map (findMethod (getActions sdom)) $ callSpots ttype
+    return $ or $ map canHCMethod methods
+    where
+    findMethod :: [action] -> (String, Int) -> Maybe action
+    findMethod actions (mname, n) = 
+        (find ((== mname) . getName) actions) >>= \m ->
+        if (liftM fst (findFirstTask m) == Just n) then Just m else Nothing
+-}
+canCollapse :: (MonadState (dom, TranslationData sdom template) m
+    , HasActions action sdom
+    , HasName action
+    , HasPrecondition pre action
+    , HasEffect eff action
+    , HasTaskLists action
+    , HasTaskConstraints action
+    ) => Expr (Atomic t) -> m Bool
+canCollapse task = do
+    --canHC <- canHCTask task
+    tm <- getTypeMap
+    let ttype = flip (Map.findWithDefault baseType) tm $ taskName task
+    return $
+        True -- not canHC
+        && not (ttype `extendsType` nonPrimitive)
+        && callCounts ttype == 1
+
+       
+            
 
 --------------
 -- Translators
@@ -387,6 +437,7 @@ translateAction m = do
             (maybe [] conjuncts $ getPrecondition m)
     let effect = conjunct $
             eNot (startingP) :
+            eNot (taskP (taskName task) (taskArgs task) mId) :
             (if (useId $ taskName task) then (eNot (runningIdP $ eVar hId) :) else id)
             (maybe [] conjuncts $ getEffect m)
     let action = 
@@ -395,7 +446,7 @@ translateAction m = do
             setPrecondition (Just precond) $
             setEffect (Just effect) $
             template
-    ensurePred (taskP (taskName task) (taskArgs $ fromJust $ find ((== taskName task) . taskName) $ getTaskHead sdom) pId)
+    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) pId)
     addAction action
     return ()
 
@@ -419,7 +470,7 @@ translateCollapsed m = do
     guard $ isJust $ getTaskHead m
     let task = fromJust $ getTaskHead m
     typeMap <- getTypeMap
-    guard $ canCollapse typeMap task
+    canCollapse task >>= guard
     template <- getTemplate
     let [(mname, n)] = callSpots $ Map.findWithDefault baseType (taskName task) typeMap
     sdom <- getSDomain
@@ -531,7 +582,7 @@ constrainAction useId m n a =
         returnIds = snd tid_returnIds
         -- If we reused an incoming id, we don't need to allocate one for the task
         nextid :: forall f . (Var :<: f) => Maybe (Expr f)
-        nextid = if (useTId && (fst tid_returnIds :: Maybe (Expr Var)) `elem` mid : map Just incomingIds) then Nothing else Just (eVar "htnNextId")
+        nextid = if (not useTId || (fst tid_returnIds :: Maybe (Expr Var)) `elem` mid : map Just incomingIds) then Nothing else Just (eVar "htnNextId")
         -- If nextid is set, we're allocating tid (so make it top)
         -- If we only have on incoming id, no id management is needed
         topid :: forall f . (Var :<: f) => Maybe (Expr f)
@@ -623,18 +674,24 @@ translateTask m n task = do
                 (eNot $ controlP (getName m) n (map removeType (taskArgs task)) mid)
                 : startingP
                 : taskP (taskName task) (map removeType (taskArgs task)) tid
-                : if tid == mid then [] else maybeToList (liftM runningIdP $ tid)
+                : (if tid == mid then [] else maybeToList (liftM runningIdP $ tid))
                 ++ maybe [] conjuncts (getEffect a)
     addAction $
         setPrecondition (Just precond) $
         setEffect (Just effect) $
         a
 
-ignoreCollapsedTasks :: forall a b c d m . (MonadState (a, TranslationData b c) m, MonadPlus m) => 
-    d -> Int -> StdTaskDef -> m () 
+ignoreCollapsedTasks :: (MonadState (dom, TranslationData sdom template) m
+    , MonadPlus m
+    , HasActions action sdom
+    , HasName action
+    , HasPrecondition pre action
+    , HasEffect eff action
+    , HasTaskLists action
+    , HasTaskConstraints action
+    ) => action -> Int -> StdTaskDef -> m () 
 ignoreCollapsedTasks _ _ task = do
-    typeMap <- getTypeMap
-    guard $ canCollapse typeMap task 
+    canCollapse task >>= guard
     return ()
 
 translateMethod :: forall m dom sdom template action pre eff .
@@ -655,9 +712,8 @@ translateMethod :: forall m dom sdom template action pre eff .
     => [action -> Int -> StdTaskDef -> m ()] 
     -> action -> m ()
 translateMethod taskTransl m = do
-    guard $ isJust $ getTaskHead m
+    flip (maybe mzero) (getTaskHead m) $ \task -> do
     guard $ not $ null $ getTaskLists m
-    let task = fromJust $ getTaskHead m
     useId <- getIdUse
     template <- getTemplate
     let useMId = useId $ taskName task
@@ -671,9 +727,8 @@ translateMethod taskTransl m = do
     let taskPs = [ controlP (getName m) n (taskArgs t) hId
             | (n, t) <- enumerateTasks m]
     sdom <- getSDomain
-    let taskdefs = getTaskHead sdom
     let controlPreds = [ controlP (getName m) n
-            (taskArgs $ fromJust $ flip find taskdefs $ flip (.) taskName $ (==) $ taskName t)
+            (taskArgs $ taskDef sdom t)
             (liftM (flip eTyped htnIdT) hId)
             | (n, t) <- tasks]
     let precond = conjunct $
@@ -682,6 +737,7 @@ translateMethod taskTransl m = do
             (maybe [] conjuncts $ getPrecondition m)
     let effect = conjunct $
             eNot (startingP) :
+            eNot (taskP (taskName task) (taskArgs task) hId) :
             taskPs ++
             (maybe [] conjuncts $ getEffect m)
     let action = 
@@ -690,7 +746,7 @@ translateMethod taskTransl m = do
             setPrecondition (Just precond) $
             setEffect (Just effect) $
             template
-    ensurePred (taskP (taskName task) (taskArgs $ fromJust $ find ((== taskName task) . taskName) taskdefs) pId)
+    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) pId)
     addPreds (
        controlPreds 
         ++ [ releaseP (getName m) 
@@ -699,7 +755,7 @@ translateMethod taskTransl m = do
            | (n1, t) <- tasks, (n2, _) <- findNextTasks m n1])
     addAction action
     mapM_ (\(n, t) -> msum $ flip map taskTransl $ \trans ->
-        trans m n $ fromJust $ find (\td -> taskName td == taskName t) taskdefs) tasks
+        trans m n $ taskDef sdom t) tasks
     when (useMId && isNothing (findLastTask m)) $ do
         let n = lastN m
         let (mid, _, a) = constrainAction useId m n $
@@ -710,3 +766,81 @@ translateMethod taskTransl m = do
         addAction $ setEffect (Just effect') a
     return ()
 
+{-
+translateHCMethod :: forall m dom sdom template action pre eff .
+    (MonadState (dom, TranslationData sdom template) m, MonadPlus m,
+     HasPredicates (Expr (Atomic TypedVarExpr)) dom,
+     HasName action, HasName template,
+     HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
+     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     Atomic TermExpr :<: pre, Not :<: pre,
+     And :<: pre, Conjuncts pre pre,
+     HasEffect (Expr eff) action, HasEffect (Expr eff) template,
+     Atomic TermExpr :<: eff, Not :<: eff,
+     And :<: eff, Conjuncts eff eff,
+     HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
+     HasTaskLists action, HasTaskConstraints action,
+     HasActions template dom,
+     HasTaskHead [StdTaskDef] sdom)
+    => [action -> Int -> StdTaskDef -> m ()] 
+    -> action -> m ()
+translateHCMethod taskTransl m = do
+    flip (maybe mzero) (getTaskHead m) $ \task -> do
+    guard $ isNothing $ getPrecondition m
+    guard $ isNothing $ getEffect m
+    guard $ not $ null $ getTaskLists m
+    flip (maybe mzero) (findFirstTask m) $ \(fn, ft) -> do
+    typemap <- getTypeMap
+    guard $ canHCMethod m
+    useId <- getIdUse
+    template <- getTemplate
+    let (mid, tid, a) = constrainAction useId m fn $
+            setName (getName m) $
+            setParameters (getParameters m) $
+            setPrecondition (getPrecondition m) $
+            setEffect (getEffect m) $
+            template
+    let midP :: Maybe TypedVarExpr = mid >> return (eTyped (eVar "htnId" :: Expr Var) htnIdT)
+    let tasks = enumerateTasks m
+    let taskPs = [ controlP (getName m) n (taskArgs t) mid
+            | (n, t) <- enumerateTasks m, n /= fn ]
+    sdom <- getSDomain
+    let controlPreds = [ controlP (getName m) n
+            (taskArgs $ taskDef sdom t)
+            midP --(liftM (flip eTyped htnIdT) mid)
+            | (n, t) <- tasks, n /= fn]
+    let precond = conjunct $
+            (startingP) :
+            taskP (taskName task) (taskArgs task) mid :
+            (maybe [] conjuncts $ getPrecondition a)
+    let effect = conjunct $
+            eNot (taskP (taskName task) (taskArgs task) mid) :
+            taskP (taskName ft) (taskArgs ft) tid
+            : (if tid == mid then [] else maybeToList (liftM runningIdP $ tid))
+            ++ taskPs
+            ++ (maybe [] conjuncts $ getEffect a)
+    let action = 
+            setPrecondition (Just precond) $
+            setEffect (Just effect) $
+            a
+    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) midP)
+    addPreds (
+       controlPreds 
+        ++ [ releaseP (getName m) 
+            n1 (mid >> return (htnIdP 0))
+            n2 (if (useId $ taskName t) then Just (htnIdP 1) else Nothing)
+           | (n1, t) <- tasks, (n2, _) <- findNextTasks m n1])
+    addAction action
+    flip mapM_ (filter ((/= fn) . fst) tasks) $
+        (\(n, t) -> msum $ flip map taskTransl $ \trans ->
+            trans m n $ taskDef sdom t )
+    when (isJust mid && isNothing (findLastTask m)) $ do
+        let n = lastN m
+        let (mid', _, a') = constrainAction useId m n $
+                setName (getName m ++ '_' : show n) template
+        let effect' = conjunct $
+                eNot (runningIdP $ fromJust mid') 
+                : maybe [] conjuncts (getEffect a')
+        addAction $ setEffect (Just effect') a'
+    return ()
+-}

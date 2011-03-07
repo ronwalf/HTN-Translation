@@ -13,22 +13,9 @@ module HTNTranslation.HTNProblemLift (
   liftProblem
 ) where
 
-{-
-import Control.Monad
-import Data.List
-import Data.Maybe
-import System.Environment
-import System.Exit
-import System.IO
-import Text.ParserCombinators.Parsec
-import Text.ParserCombinators.Parsec.Token
--}
-
-import Data.List
 import Data.Maybe
 
 import HTNTranslation.HTNPDDL
-import Planning.PDDL.Parser
 
 class Functor f => AtomicFinder t f where
     --atomicFinder :: f [Expr (Atomic t)]-> [Expr (Atomic t)]
@@ -119,6 +106,14 @@ constAtomic constTemplate (In (Atomic p tl)) =
 
 --liftProblem ::
 --    template -> problem -> task -> template
+liftProblem :: (HasTaskHead (Maybe task) problem,
+    HasInitial (Expr s) problem,
+    HasGoal (Expr g) problem,
+    Atomic ConstTermExpr :<: s,
+    AtomicFinder (Expr PDDLAtom) g,
+    AtomicRenamer g g
+    ) => task -> problem -> problem
+    
 liftProblem task problem =
     
     let 

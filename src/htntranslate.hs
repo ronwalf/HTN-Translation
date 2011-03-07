@@ -44,7 +44,11 @@ idTranslation =
 optimizedTranslation :: TranslationDef
 optimizedTranslation = 
     ([useAtomicId, usePLastId]
-    ,[translateUncontrolled, translateCollapsed, translateAction, translateMethod [ignoreCollapsedTasks, translateTask]])
+    ,[translateUncontrolled
+     , translateCollapsed
+     , translateAction
+     --, translateHCMethod [ignoreCollapsedTasks, translateTask]
+     , translateMethod [ignoreCollapsedTasks, translateTask]])
 
 translations :: [(String, TranslationDef)]
 translations =
