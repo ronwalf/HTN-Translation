@@ -24,7 +24,7 @@ import System.IO
 import Text.ParserCombinators.Parsec (CharParser, runParser)
 import Text.ParserCombinators.Parsec.Token (parens)
 
-import Planning.PDDL.Parser (pddlLexer, atomicParser)
+import Planning.PDDL.Parser (pddlExprLexer, atomicParser)
 
 import HTNTranslation.HTNPDDL
 import HTNTranslation.HTNProblemLift
@@ -117,8 +117,8 @@ errCheck (Right prob) = return prob
 
 
 taskParser :: CharParser a (Expr (Atomic ConstTermExpr))
-taskParser = parens pddlLexer $
-    atomicParser pddlLexer $ constTermParser pddlLexer
+taskParser = parens pddlExprLexer $
+    atomicParser pddlExprLexer $ constTermParser pddlExprLexer
 
 
 processProblem :: Options -> TaskIdUse -> String -> IO ()

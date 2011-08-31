@@ -352,39 +352,38 @@ instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc
 type StandardMethod = Method PreferenceGDExpr EffectDExpr
 
 
-htnLanguage :: forall st. T.LanguageDef st
-htnLanguage = pddlLanguage {
-    T.reservedNames = T.reservedNames pddlLanguage ++
+htnDescLanguage :: forall st. T.LanguageDef st
+htnDescLanguage = pddlDescLanguage {
+    T.reservedNames = T.reservedNames pddlDescLanguage ++
         [":method", ":task", ":tasks", ":branch"]
     }
 
-htnLexer :: forall st. T.TokenParser st
-htnLexer = T.makeTokenParser htnLanguage
+htnDescLexer :: forall st. T.TokenParser st
+htnDescLexer = T.makeTokenParser htnDescLanguage
 
 htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
 htnParser = let 
-        mylex = htnLexer 
-        condParser = prefGDParser mylex 
-        effParser = effectDParser mylex 
-        constraintP = constraintGDParser mylex
+        condParser = prefGDParser pddlExprLexer 
+        effParser = effectDParser pddlExprLexer
+        constraintP = constraintGDParser pddlExprLexer
         actions =
-            (methodParser mylex condParser effParser :: CharParser StandardHTNDomain ())
+            (methodParser htnDescLexer condParser effParser :: CharParser StandardHTNDomain ())
     in
-    domainParser mylex (hDomainInfoParser mylex constraintP) actions
+    domainParser htnDescLexer (hDomainInfoParser htnDescLexer constraintP) actions
 
 htnProblemParser :: GenParser Char StandardHTNProblem StandardHTNProblem
 htnProblemParser = 
     let
-        stateP = T.parens htnLexer $ initLiteralParser pddlLexer :: CharParser StandardHTNProblem InitLiteralExpr 
-        goalP = prefGDParser pddlLexer :: CharParser StandardHTNProblem PreferenceGDExpr
-        constraintP = constraintGDParser pddlLexer :: CharParser StandardHTNProblem ConstraintGDExpr
+        stateP = T.parens pddlExprLexer $ initLiteralParser pddlExprLexer :: CharParser StandardHTNProblem InitLiteralExpr 
+        goalP = prefGDParser pddlExprLexer :: CharParser StandardHTNProblem PreferenceGDExpr
+        constraintP = constraintGDParser pddlExprLexer :: CharParser StandardHTNProblem ConstraintGDExpr
         taskP =  do
-            try $ T.reserved htnLexer ":task"
-            task <- T.parens htnLexer (atomicParser htnLexer (constTermParser htnLexer))
+            try $ T.reserved htnDescLexer ":task"
+            task <- T.parens pddlExprLexer (atomicParser pddlExprLexer (constTermParser pddlExprLexer))
             updateState (setTaskHead $ Just task)
-        infoP = taskP <|> problemInfoParser htnLexer stateP goalP constraintP
+        infoP = taskP <|> problemInfoParser htnDescLexer stateP goalP constraintP
     in
-    problemParser htnLexer infoP
+    problemParser htnDescLexer infoP
 
 hDomainInfoParser :: (HasRequirements st,
         HasTypes TypedConstExpr st,
@@ -396,13 +395,13 @@ hDomainInfoParser :: (HasRequirements st,
     T.TokenParser st
     -> CharParser st a
     -> CharParser st ()
-hDomainInfoParser mylex condParser =
+hDomainInfoParser dlex condParser =
     (do
-        try $ T.reserved mylex ":tasks"
-        tasks <- many $ T.parens mylex (atomicParser mylex (parseTypedVar mylex))
+        try $ T.reserved dlex ":tasks"
+        tasks <- many $ T.parens dlex (atomicParser dlex (parseTypedVar dlex))
         updateState (setTaskHead tasks))
     <|>
-    domainInfoParser mylex condParser
+    domainInfoParser dlex condParser
 
 
 methodParser :: forall st p e .
