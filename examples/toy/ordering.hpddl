@@ -1,0 +1,51 @@
+(define (domain ordering)
+(:requirements :strips)
+(:predicates 
+  (left))
+(:tasks
+  (t0)
+  (t1)
+  (t2)
+  (a)
+  (b)
+  (c))
+
+(:method t0
+ :parameters ()
+ :task (t0)
+ :tasks (h (c))
+ :tasks (i (t1))
+ :tasks (j (t2))
+ :tasks (k (c))
+ :ordering ( (h i) (h j) (i k) (j k) ))
+
+(:method t1
+ :parameters ()
+ :task (t1)
+ :tasks ((a))
+ :tasks ((a)))
+
+(:method t2
+ :parameters ()
+ :task (t2)
+ :tasks ((b))
+ :tasks ((b)))
+
+(:action a
+ :parameters ()
+ :task (a)
+ :precondition (left)
+ :effect (not (left)))
+
+(:action b
+ :parameters ()
+ :task (b)
+ :precondition (not (left))
+ :effect (left))
+
+(:action c
+ :parameters ()
+ :task (c)))
+
+
+

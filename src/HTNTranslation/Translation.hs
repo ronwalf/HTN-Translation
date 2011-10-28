@@ -190,7 +190,8 @@ translateProblem :: forall template problem g c f .
     HasDomainName template, HasDomainName problem,
     HasRequirements template, HasRequirements problem,
     HasConstants TypedConstExpr template, HasConstants TypedConstExpr problem,
-    HasGoal g template, HasGoal g problem,
+    HasGoal (Expr g) template, HasGoal (Expr g) problem, 
+    PDDLAtom :<: g, And :<: g, Not :<: g,
     HasConstraints c template, HasConstraints c problem,
     HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem,
     HasInitial (Expr f) template, HasInitial (Expr f) problem,
@@ -200,13 +201,20 @@ translateProblem template useId numIds problem =
     setName (getName problem) $
     setDomainName (getDomainName problem) $
     setRequirements (getRequirements problem) $
-    setGoal (getGoal problem) $
+    setGoal (Just goal) $
     setConstraints (getConstraints problem) $
     idInits (getTaskHead problem) $
     setConstants (getConstants problem) $
     setInitial (getInitial problem) $
     template
     where
+    -- BUGBUG This only works if the initial task uses an htn id (or we use a goal)
+    goal :: Expr g
+    goal = fromMaybe 
+        (eAnd [
+            eNot $ startingP (undefined :: TermExpr), 
+            eNot $ runningIdP (htnIdC 1 :: TermExpr)]) $
+        getGoal problem
     idInits :: Maybe (Expr (Atomic ConstTermExpr)) -> template -> template
     idInits Nothing p =
         setConstants (getConstants p ++ constants numIds) $
@@ -514,7 +522,7 @@ prevTaskNs useId m n =
     let
         tasks = enumerateTasks m
         lastTasks :: [(Int, Expr PDDLAtom)]
-        lastTasks = filter ((/= lastN m) . fst) $ findLastTasks m
+        lastTasks = filter ((/= lastN m) . fst) $ findLastTasks m -- Non-empty if >1 last task
         hangingIds :: [(Int, Expr PDDLAtom)]
         hangingIds = filter (hangingId useId m . fst) tasks
     in
@@ -750,7 +758,7 @@ translateMethod taskTransl m = do
         ++ [ releaseP (getName m) 
             n1 (if useMId then Just (htnIdP 0) else Nothing)
             n2 (if (useId $ taskName t) then Just (htnIdP 1) else Nothing)
-           | (n1, t) <- tasks, (n2, _) <- findNextTasks m n1])
+           | (n1, t) <- tasks, n2 <- nextTaskNs useId m n1])
     addAction action
     mapM_ (\(n, t) -> msum $ flip map taskTransl $ \trans ->
         trans m n $ taskDef sdom t) tasks

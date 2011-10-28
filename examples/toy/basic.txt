@@ -1,0 +1,1 @@
+htntranslate -oopt -v -i 4 basic.hpddl basic-problem.hpddl &&  ff -o basic.pddl -f basic-problem.pddl

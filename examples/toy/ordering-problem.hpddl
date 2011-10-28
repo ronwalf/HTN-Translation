@@ -1,0 +1,6 @@
+(define
+ (problem ordering_problem)
+ (:domain ordering)
+ (:init
+  (left))
+ (:task (t0)))

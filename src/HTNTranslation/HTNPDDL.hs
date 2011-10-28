@@ -176,7 +176,7 @@ unTaskLists :: TaskLists -> [TaskList]
 unTaskLists (TaskLists tl) = tl
 class (Data f) => HasTaskLists f where
     getTaskLists :: f -> [TaskList]
-    getTaskLists = unTaskLists . fromJust . gfind
+    getTaskLists = filter (not . null . snd) . unTaskLists . fromJust . gfind
     setTaskLists :: [TaskList] -> f -> f
     setTaskLists tl f = fromJust $ greplace f (TaskLists tl)
 
@@ -197,7 +197,13 @@ numberTasks m =
         return (name, tasks')
 
 enumerateTasks :: HasTaskLists m => m -> [(Int, Expr PDDLAtom)]
-enumerateTasks = concatMap snd . numberTasks    
+enumerateTasks = concatMap snd . numberTasks
+
+findTaskLists :: HasTaskLists m => m -> String -> [[(Int, Expr PDDLAtom)]]
+findTaskLists m name = 
+    map snd $ 
+    filter ((== Just (name)) . fst) $ 
+    numberTasks m
     
 --findPrecursor :: (HasTaskLists m, HasTaskConstraints m) =>
 --    Int -> m -> [ 
@@ -212,10 +218,47 @@ class (Data f) => HasTaskConstraints f where
     setTaskConstraints :: [TaskConstraint] -> f -> f
     setTaskConstraints tc f = fromJust $ greplace f (TaskConstraints tc)
 
+deleteAll :: Eq c => c -> [c] -> [c]
+deleteAll c = filter (/= c)
+
+normalizedTaskConstraints :: (HasTaskLists m, HasTaskConstraints m) =>
+    m -> [TaskConstraint]
+normalizedTaskConstraints m =
+    let
+        constraints :: [TaskConstraint]
+        constraints = getTaskConstraints m
+        names :: [String]
+        names = nub $
+            map fst constraints 
+            ++ map snd constraints
+        used :: [String]
+        used = filter (\n -> or $ map (not . null) $ findTaskLists m n) names
+        unused :: [String]
+        unused = names \\ used
+    in
+    expand unused constraints
+    where
+        expand :: [String] -> [TaskConstraint] -> [TaskConstraint]
+        expand [] tc = tc
+        expand (u : ul) tc =
+            expand ul $ -- Continue expansion
+            replace u $ -- Replace left and right occurances
+            deleteAll (u,u) tc -- Remove self constraints (OK since empty)
+        replace :: String -> [TaskConstraint] -> [TaskConstraint]
+        replace u tc =
+            let
+                l = map fst $ filter ((== u) . snd) tc
+                r = map snd $ filter ((== u) . fst) tc
+            in
+            [(c1,c2) | c1 <- l, c2 <- r] -- Cross product of constraints
+            ++ filter (\(c1,c2) -> c1 == u || c2 == u) tc
+
+                
+
 findFirstTask :: (HasTaskLists m, HasTaskConstraints m) =>
     m -> Maybe (Int, Expr PDDLAtom)
 findFirstTask m =
-    case winnow (getTaskConstraints m) (numberTasks m) of
+    case winnow (normalizedTaskConstraints m) (numberTasks m) of
         [(_, h : _)] -> Just h
         _ -> Nothing
     where
@@ -228,7 +271,7 @@ findLastTasks :: (HasTaskLists m, HasTaskConstraints m) =>
     m -> [(Int, Expr PDDLAtom)]
 findLastTasks m =
     map (last . snd) $
-    winnow (getTaskConstraints m) (numberTasks m)
+    winnow (normalizedTaskConstraints m) (numberTasks m)
     where
         winnow :: [(String, String)] -> [(Maybe String, [(Int, Expr PDDLAtom)])] -> [(Maybe String, [(Int, Expr PDDLAtom)])]
         winnow [] tl = tl
@@ -253,9 +296,10 @@ findPrevTasks m n =
     Left t -> [t]
     Right Nothing -> []
     Right (Just tlname) -> 
-        concatMap (\(prevname, _) -> map (last . snd) $ filter ((== Just prevname) . fst) tasks) $
+        concatMap (\(prevname, _) -> map (last . snd) $ 
+            filter ((== Just prevname) . fst) tasks) $
         filter ((== tlname) . snd) $
-        getTaskConstraints m
+        normalizedTaskConstraints m
     where
         tcontext :: [(Maybe String, [(Int, Expr PDDLAtom)])] -> Either (Int, Expr PDDLAtom) (Maybe String)
         tcontext [] = Right Nothing
@@ -282,8 +326,9 @@ findNextTasks m n =
             filter (not . null . snd) $
             filter ((== Just nextname) . fst) tasks) $
         filter ((== tlname) . fst) $
-        getTaskConstraints m
+        normalizedTaskConstraints m
     where
+        -- Return the next task in the list or the string associated with its list
         tcontext :: [(Maybe String, [(Int, Expr PDDLAtom)])] -> Either (Int, Expr PDDLAtom) (Maybe String)
         tcontext [] = Right Nothing
         tcontext ((_, []) : tl) = tcontext tl
@@ -293,6 +338,7 @@ findNextTasks m n =
         tcontext ((name, (pn, _) : tnt : ttl) : tl)
             | pn == n = Left tnt 
             | otherwise = tcontext $ (name, tnt : ttl) : tl
+            
 
 type StdTask = Expr (Atomic TermExpr)
 type StdTaskHead = Maybe StdTask 
@@ -336,7 +382,7 @@ instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc
         docMaybe ":precondition" $ getPrecondition m,
         docMaybe ":effect" $ getEffect m]
         ++ map tasklist (getTaskLists m)
-        ++ [text ":constraints" 
+        ++ [text ":ordering" 
             <+> parens (sep $ map tconstraint $ getTaskConstraints m)])
         where
             tasklist :: TaskList -> Doc
@@ -355,7 +401,7 @@ type StandardMethod = Method PreferenceGDExpr EffectDExpr
 htnDescLanguage :: forall st. T.LanguageDef st
 htnDescLanguage = pddlDescLanguage {
     T.reservedNames = T.reservedNames pddlDescLanguage ++
-        [":method", ":task", ":tasks", ":branch"]
+        [":method", ":task", ":tasks", ":branch", ":ordering"]
     }
 
 htnDescLexer :: forall st. T.TokenParser st
@@ -464,7 +510,7 @@ taskListParser mylex = do
 taskConstraintParser :: HasTaskConstraints a =>
     T.TokenParser st -> CharParser st (a -> a)
 taskConstraintParser mylex = do
-    try $ T.reserved mylex ":constraints"
+    try $ T.reserved mylex ":ordering"
     T.parens mylex $ do
         orderings <- many $ T.parens mylex $ do
             t1 <- T.identifier mylex
