@@ -38,12 +38,14 @@ basicTranslation = ([], [translateUncontrolled, translateAction, translateMethod
 
 idTranslation :: TranslationDef
 idTranslation = 
-    ([useAtomicId, usePLastId]
+    (--[useAtomicId, usePLastId]
+     [useAtomicId]
     ,[translateUncontrolled, translateAction, translateMethod [translateTask]])
 
 optimizedTranslation :: TranslationDef
 optimizedTranslation = 
-    ([useAtomicId, usePLastId]
+    (--[useAtomicId, usePLastId]
+     [useAtomicId]
     ,[translateUncontrolled
      , translateCollapsed
      , translateAction
@@ -67,7 +69,7 @@ data Options = Options
 
 defaultOptions :: Options
 defaultOptions = Options
-    { optNumIds = 1
+    { optNumIds = 0
     , optTranslation = basicTranslation
     , optLift = Nothing
     , optPostfix = ".pddl"

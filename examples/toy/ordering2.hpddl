@@ -17,8 +17,7 @@
  :tasks (h (c))
  :tasks (i (t1))
  :tasks (j (t2))
- :tasks (k (c))
- :ordering ( (h i) (h j) (i k) (j k) ))
+ :ordering ( (h i) (h j)))
 
 
 (:method t1

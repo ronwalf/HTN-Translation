@@ -211,10 +211,14 @@ translateProblem template useId numIds problem =
     -- BUGBUG This only works if the initial task uses an htn id (or we use a goal)
     goal :: Expr g
     goal = fromMaybe 
-        (eAnd [
-            eNot $ startingP (undefined :: TermExpr), 
-            eNot $ runningIdP (htnIdC 1 :: TermExpr)]) $
+        htnStopped $
         getGoal problem
+    htnStopped :: Expr g
+    htnStopped = eAnd $
+        (eNot $ startingP (undefined :: TermExpr))
+        : (if (numIds > 0 || maybe False (useId . taskName) (getTaskHead problem))
+            then [eNot $ runningIdP (htnIdC 1 :: TermExpr)]
+            else [error "Using goal to enforce termination of an initial task that doesn't use HTN IDs not yet implemented.  Use a more basic optimization"])
     idInits :: Maybe (Expr (Atomic ConstTermExpr)) -> template -> template
     idInits Nothing p =
         setConstants (getConstants p ++ constants numIds) $
@@ -300,6 +304,7 @@ usePLastId :: (MonadPlus m) => TaskIdUseFunc m
 usePLastId tm =
     flip (>>) (return False) .
     guard . not .
+    --(\t -> t `extendsType` pNotLast || callCounts t == 0) .
     flip extendsType pNotLast .
     flip (Map.findWithDefault baseType) tm
 
@@ -595,6 +600,7 @@ constrainAction useId m n a =
         topid = if isNothing (nextid :: Maybe (Expr Var)) && null (returnIds :: [Expr Var])
                 then Nothing
                 else Just (eVar "htnTopId")
+        -- 
         tid :: forall f . (Var :<: f) => Maybe (Expr f)
         tid = if useTId && isJust (nextid :: Maybe (Expr Var)) then topid else fst tid_returnIds
         nextts = nextTaskNs useId m n
