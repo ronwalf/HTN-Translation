@@ -376,8 +376,7 @@ instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc
         docMaybe ((text ":precondition" <+>) . pddlDoc) (getPrecondition m),
         docMaybe ((text ":effect" <+>) . pddlDoc) (getEffect m)]
         ++ map tasklist (getTaskLists m)
-        ++ [text ":ordering" 
-            <+> parens (sep $ map tconstraint $ getTaskConstraints m)])
+        ++ [docList ((text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints m)])
         where
             tasklist :: TaskList -> Doc
             tasklist (Just name, tl) = text ":tasks" <+> parens (sep $
