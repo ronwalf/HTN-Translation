@@ -28,12 +28,12 @@ import HTNTranslation.HTNPDDL
 import HTNTranslation.Typing
 
 -- Types
-htnIdT :: (Const :<: f) => Expr f
-htnIdT = eConst "HTN_ID"
+htnIdT :: String
+htnIdT = "HTN_ID"
 htnIdV :: (Var :<: f) => Int -> Expr f
 htnIdV n = eVar $ "htn_id" ++ show n
 htnIdP :: Int -> TypedVarExpr
-htnIdP n = eTyped (htnIdV n :: Expr Var) htnIdT
+htnIdP n = eTyped (htnIdV n :: Expr Var) [htnIdT]
 htnIdC :: (Const :<: f) => Int -> Expr f
 htnIdC n = eConst $ "htn_id" ++ show n
 
@@ -161,7 +161,7 @@ copyDomainInfo template domain =
 -- Create task start/control predicates
 translateTaskP ::
     ( HasPredicates (Expr (Atomic TypedVarExpr)) dom
-    , HasTypes TypedConstExpr dom)
+    , HasTypes TypedTypeExpr dom)
     => TaskIdUse -> [Expr (Atomic TypedVarExpr)] -> dom -> dom
 translateTaskP useId tasks domain =
     let
@@ -176,7 +176,7 @@ translateTaskP useId tasks domain =
             ++ (if useIds then htnIdPs else [])
             -- ++ map transTask tasks
         types = getTypes domain ++
-            if useIds then [htnIdT] else []
+            if useIds then [eTyped htnIdT []] else []
     in
     setTypes types $
     setPredicates preds $
@@ -241,7 +241,7 @@ translateProblem template useId numIds problem =
                 ++ idList [1..numIds]) $
             p
     constants :: Int -> [TypedConstExpr]
-    constants n = [eTyped (htnIdC c :: Expr Const) htnIdT | c <- [1..n]]
+    constants n = [eTyped (htnIdC c :: Expr Const) [htnIdT] | c <- [1..n]]
     idList :: [Int] -> [Expr f]
     idList [] = []
     idList nl@(h:_) =
@@ -255,7 +255,7 @@ translateProblem template useId numIds problem =
 
 translateDomain :: (HasName a, HasName b,
     HasRequirements a, HasRequirements b,
-    HasTypes (TypedConstExpr) a, HasTypes (TypedConstExpr) b,
+    HasTypes (TypedTypeExpr) a, HasTypes (TypedTypeExpr) b,
     HasConstants c a, HasConstants c b,
     HasPredicates (Expr (Atomic TypedVarExpr)) a, HasPredicates (Expr (Atomic TypedVarExpr)) b,
     HasTaskHead [StdTaskDef] a,
@@ -440,9 +440,9 @@ translateAction m = do
     let task = fromJust $ getTaskHead m 
     let hId = "hId"
     let mId = if (useId $ taskName task) then Just (eVar hId) else Nothing
-    let pId = mId >> return (eTyped (eVar hId :: Expr Var) htnIdT)
+    let pId = mId >> return (eTyped (eVar hId :: Expr Var) [htnIdT])
     let params = getParameters m
-            ++ if (useId $ taskName task) then [eTyped (eVar hId :: Expr Var) htnIdT] else []
+            ++ if (useId $ taskName task) then [eTyped (eVar hId :: Expr Var) [htnIdT]] else []
     let precond = conjunct $
             (startingP (undefined :: TermExpr)) :
             taskP (taskName task) (taskArgs task) mId :
@@ -606,7 +606,7 @@ constrainAction useId m n a =
         nextts = nextTaskNs useId m n
         params = nub $
             (++) (getParameters a) $
-            map (flip eTyped htnIdT :: Expr Var -> TypedVarExpr) $
+            map (flip eTyped [htnIdT] :: Expr Var -> TypedVarExpr) $
             catMaybes [topid, nextid, mid, tid] ++ incomingIds
         precond = conjunct $
             [releaseP name n' mid n pid | (n', pid) <- prevts]
@@ -632,7 +632,7 @@ constrainAction useId m n a =
         | otherwise = fixIds' useTId $ mapMaybe snd $ filter (not . hangingId useId m . fst) prevts
     fixIds' :: forall f . (Var :<: f) => Bool -> [Expr f] -> (Maybe (Expr f), [Expr f])
     fixIds' False prevts = (Nothing, prevts)
-    fixIds' True [] = (Just $ eVar "htnIdT", [])
+    fixIds' True [] = (Just $ eVar "htnIdTop", [])
     fixIds' True (h : tl) = (Just h, tl)
     idEffects :: forall f . (AtomicExpression TermExpr f, Not :<: f) =>
         Maybe (TermExpr) -> Maybe (TermExpr) -> [TermExpr] -> [Expr f]
@@ -678,14 +678,14 @@ translateTask m n task = do
             template
         precond :: (Expr pre)
         precond = conjunct $
-                controlP (getName m) n (map removeType (taskArgs task)) mid
+                controlP (getName m) n (map (liftE . removeType) (taskArgs task)) mid
                 : eNot (startingP (undefined :: TermExpr))
                 : maybe [] conjuncts (getPrecondition a)
         effect :: (Expr eff)
         effect = conjunct $
-                (eNot $ controlP (getName m) n (map removeType (taskArgs task)) mid)
+                (eNot $ controlP (getName m) n (map (liftE . removeType) (taskArgs task)) mid)
                 : (startingP (undefined :: TermExpr))
-                : taskP (taskName task) (map removeType (taskArgs task)) tid
+                : taskP (taskName task) (map (liftE . removeType) (taskArgs task)) tid
                 : (if tid == mid then [] else maybeToList (liftM runningIdP $ tid))
                 ++ maybe [] conjuncts (getEffect a)
     addAction $
@@ -732,16 +732,16 @@ translateMethod taskTransl m = do
     let
         hId :: forall e . (Var :<: e) => Maybe (Expr e)
         hId = if useMId then Just (eVar "hId") else Nothing
-    let pId = hId >>= \v -> return $ eTyped (v :: Expr Var) htnIdT
+    let pId = hId >>= \v -> return $ eTyped (v :: Expr Var) [htnIdT]
     let params = getParameters m
-            ++ maybeToList (liftM (flip eTyped htnIdT) (hId :: Maybe (Expr Var)))
+            ++ maybeToList (liftM (flip eTyped [htnIdT]) (hId :: Maybe (Expr Var)))
     let tasks = enumerateTasks m
     let taskPs = [ controlP (getName m) n (taskArgs t) hId
             | (n, t) <- enumerateTasks m ]
     sdom <- getSDomain
     let controlPreds = [ controlP (getName m) n
             (taskArgs $ taskDef sdom t)
-            (liftM (flip eTyped htnIdT) hId)
+            (liftM (flip eTyped [htnIdT]) hId)
             | (n, t) <- tasks]
     let precond = conjunct $
             (startingP (undefined :: TermExpr)) :
@@ -812,7 +812,7 @@ translateHCMethod taskTransl m = do
             setPrecondition (getPrecondition m) $
             setEffect (getEffect m) $
             template
-    let midP :: Maybe TypedVarExpr = mid >> return (eTyped (eVar "htnId" :: Expr Var) htnIdT)
+    let midP :: Maybe TypedVarExpr = mid >> return (eTyped (eVar "htnId" :: Expr Var) [htnIdT])
     let tasks = enumerateTasks m
     let taskPs = [ controlP (getName m) n (taskArgs t) mid
             | (n, t) <- enumerateTasks m, n /= fn ]

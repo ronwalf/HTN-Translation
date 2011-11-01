@@ -44,22 +44,22 @@ import Planning.PDDL.Parser
 data HDomain a b = HDomain
     Name
     Requirements
-    (Types TypedConstExpr)
+    (Types TypedTypeExpr)
     (Constants TypedConstExpr)
-    (Predicates (Expr (Atomic TypedVarExpr)))
+    (Predicates TypedPredicateExpr)
     (TaskHead [StdTaskDef])
-    (Functions TypedFuncExpr)
+    (Functions TypedFuncSkelExpr)
     (Constraints a)
     (Actions b)
     deriving (Data, Eq, Typeable)
 
 instance (Data a, Data b) => HasName (HDomain a b)
 instance (Data a, Data b) => HasRequirements (HDomain a b)
-instance (Data a, Data b) => HasTypes TypedConstExpr (HDomain a b)
+instance (Data a, Data b) => HasTypes TypedTypeExpr (HDomain a b)
 instance (Data a, Data b) => HasConstants TypedConstExpr (HDomain a b)
-instance (Data a, Data b) => HasPredicates (Expr (Atomic TypedVarExpr)) (HDomain a b)
+instance (Data a, Data b) => HasPredicates TypedPredicateExpr (HDomain a b)
 instance (Data a, Data b) => HasTaskHead [StdTaskDef] (HDomain a b)
-instance (Data a, Data b) => HasFunctions TypedFuncExpr (HDomain a b)
+instance (Data a, Data b) => HasFunctions TypedFuncSkelExpr (HDomain a b)
 instance (Data a, Data b) => HasConstraints a (HDomain a b)
 instance (Data a, Data b) => HasActions b (HDomain a b)
 instance (Data a, Data b, PDDLDoc a, PDDLDoc b) =>
@@ -67,16 +67,10 @@ instance (Data a, Data b, PDDLDoc a, PDDLDoc b) =>
     pddlDoc domain = parens $ ($$) (text "define") $ vcat $
         parens (text "domain" <+> text (getName domain)) :
          -- Requirement strings are prefixed with ':'
-        (if (null $ getRequirements domain) then empty else parens
-            (sep $
-             map (text . (':':)) $
-             "requirements" : getRequirements domain)) :
-        parens (sep $ (text ":types") :
-            [pddlDoc t | t <- getTypes domain]) :
-        parens (sep $ (text ":predicates") :
-            [pddlDoc p | p <- getPredicates domain]) :
-        parens (sep $ (text ":tasks") :
-            [pddlDoc p | p <- getTaskHead domain]) :
+        docList (parens . sep . (text ":requirements" :) . map pddlDoc) (getRequirements domain) :
+        docList (parens . sep . (text ":types" :) . (:[]) . pddlDoc) (getTypes domain) :
+        docList (parens . sep . (text ":predicates" :) . map pddlDoc) (getPredicates domain) :
+        docList (parens . sep . (text ":tasks" :) . map pddlDoc) (getTaskHead domain) :
         space :
         intersperse space [pddlDoc x | x <- getActions domain]
 
@@ -135,12 +129,12 @@ instance (Data a, Data b, Data c, Data t,
         (parens $ text ":domain" <+> (text $ getDomainName prob)) :
         (if null $ getRequirements prob then empty else 
            (parens $ sep $ text ":requirements" : map (text . (':':)) (getRequirements prob))) :
-        docNonEmpty ":objects" (getConstants prob) :
-        docNonEmpty ":init" (getInitial prob) :
-        maybe empty (\x -> parens $ sep [text ":task", pddlDoc x]) (getTaskHead prob):
-        maybe empty (\x -> parens $ sep [text ":goal", pddlDoc x]) 
-            (getGoal prob) :
-        docMaybe ":constraints" (getConstraints prob) : []
+        docList (parens . sep . (text ":objects" :) . (:[]) . pddlDoc) (getConstants prob) :
+        docList (parens . sep . (text ":init" :) . map pddlDoc) (getInitial prob) :
+        docMaybe (parens . sep . (text ":task" :) . (:[]) . pddlDoc) (getTaskHead prob) :
+        docMaybe (parens . sep . (text ":goal" :) . (:[]) . pddlDoc) (getGoal prob) :
+        docMaybe (parens . sep . (text ":constraints" :) . (:[]) . pddlDoc) (getConstraints prob) 
+        : []
 
        
     
@@ -377,10 +371,10 @@ defaultMethod = Method (Name "")
 instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc (Method (Expr c) (Expr e)) where
     pddlDoc m = parens $ sep  ([
         (if null (getTaskLists m) then text ":action" else text ":method") <+> text (getName m),
-        text ":parameters" <+> parens (sep $ map pddlDoc $ getParameters m),
-        docMaybe ":task" $ getTaskHead m,
-        docMaybe ":precondition" $ getPrecondition m,
-        docMaybe ":effect" $ getEffect m]
+        text ":parameters" <+> parens (pddlDoc $ getParameters m),
+        docMaybe ((text ":task" <+>) . pddlDoc) (getTaskHead m),
+        docMaybe ((text ":precondition" <+>) . pddlDoc) (getPrecondition m),
+        docMaybe ((text ":effect" <+>) . pddlDoc) (getEffect m)]
         ++ map tasklist (getTaskLists m)
         ++ [text ":ordering" 
             <+> parens (sep $ map tconstraint $ getTaskConstraints m)])
@@ -432,19 +426,18 @@ htnProblemParser =
     problemParser htnDescLexer infoP
 
 hDomainInfoParser :: (HasRequirements st,
-        HasTypes TypedConstExpr st,
+        HasTypes TypedTypeExpr st,
         HasConstants TypedConstExpr st,
         HasConstraints a st,
         HasTaskHead [StdTaskDef] st,
-        Atomic TypedVarExpr :<: f,
-        HasPredicates (Expr f) st) =>
+        HasPredicates TypedPredicateExpr st) =>
     T.TokenParser st
     -> CharParser st a
     -> CharParser st ()
 hDomainInfoParser dlex condParser =
     (do
         try $ T.reserved dlex ":tasks"
-        tasks <- many $ T.parens dlex (atomicParser dlex (parseTypedVar dlex))
+        tasks <- many $ T.parens dlex (atomicTypeParser dlex (varParser dlex))
         updateState (setTaskHead tasks))
     <|>
     domainInfoParser dlex condParser
