@@ -388,7 +388,8 @@ translateUncontrolled :: forall m dom sdom vt template action param pre eff.
      HasActions template dom,
      HasName action, HasName template,
      HasParameters param action, HasParameters param template,
-     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     HasPrecondition (Maybe String, Expr pre) action, 
+     HasPrecondition (Maybe String, Expr pre) template,
      Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
      And :<:  pre, Conjuncts pre pre,
      HasEffect eff action, HasEffect eff template,
@@ -398,14 +399,13 @@ translateUncontrolled :: forall m dom sdom vt template action param pre eff.
 translateUncontrolled m = do
     guard $ isNothing $ getTaskHead m 
     guard $ null $ getTaskLists m 
-    let precond = conjunct $
-            (eNot $ startingP (undefined :: TermExpr)) :
-            (maybe [] conjuncts $ getPrecondition m)
+    let precond = flip (:) (getPrecondition m) $
+            (Nothing, eNot $ startingP (undefined :: TermExpr))
     template <- getTemplate
     let action =
             setName (getName m) $
             setParameters (getParameters m) $
-            setPrecondition (Just $ precond) $
+            setPrecondition precond $
             setEffect (getEffect m) $
             template
     addAction action
@@ -418,19 +418,19 @@ translateAction :: forall m dom sdom template action pre eff.
      HasPredicates (Expr (Atomic TypedVarExpr)) dom,
      HasName action, HasName template,
      HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
-     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     HasPrecondition (Maybe String, Expr pre) action, 
+     HasPrecondition (Maybe String, Expr pre) template,
      Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
      And :<: pre, Conjuncts pre pre,
-     HasEffect (Expr eff) action, HasEffect (Expr eff) template,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, 
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
-     And :<: eff, Conjuncts eff eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
     => action -> m ()
-
 translateAction m = do
     guard $ isJust $ getTaskHead m
     guard $ null $ getTaskLists m
@@ -443,20 +443,18 @@ translateAction m = do
     let pId = mId >> return (eTyped (eVar hId :: Expr Var) [htnIdT])
     let params = getParameters m
             ++ if (useId $ taskName task) then [eTyped (eVar hId :: Expr Var) [htnIdT]] else []
-    let precond = conjunct $
-            (startingP (undefined :: TermExpr)) :
-            taskP (taskName task) (taskArgs task) mId :
-            (maybe [] conjuncts $ getPrecondition m)
-    let effect = conjunct $
-            eNot (startingP (undefined :: TermExpr)) :
-            eNot (taskP (taskName task) (taskArgs task) mId) :
-            (if (useId $ taskName task) then (eNot (runningIdP $ eVar hId) :) else id)
-            (maybe [] conjuncts $ getEffect m)
+    let precond = flip (:) (getPrecondition m) $ (Nothing, conjunct $
+            [ (startingP (undefined :: TermExpr))
+            , taskP (taskName task) (taskArgs task) mId])
+    let effect = flip (:) (getEffect m) $ ([], Nothing,
+            (eNot (startingP (undefined :: TermExpr)))
+            : (eNot (taskP (taskName task) (taskArgs task) mId))
+            : (if (useId $ taskName task) then [eNot (runningIdP $ eVar hId)] else []))
     let action = 
             setName (getName m) $
             setParameters params $
-            setPrecondition (Just precond) $
-            setEffect (Just effect) $
+            setPrecondition precond $
+            setEffect effect $
             template
     ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) pId)
     addAction action
@@ -470,11 +468,13 @@ translateCollapsed:: forall m dom sdom template action pre eff .
      HasActions action sdom,
      HasName action, HasName template,
      HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
-     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     HasPrecondition (Maybe String, Expr pre) action, 
+     HasPrecondition (Maybe String, Expr pre) template,
      Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
      And :<:  pre, Conjuncts pre pre,
-     HasEffect (Expr eff) action, HasEffect (Expr eff) template,
-     Conjuncts eff eff, And :<: eff, Not :<: eff, Atomic TermExpr :<: eff,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, 
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
+     Not :<: eff, Atomic TermExpr :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists action, HasTaskConstraints action)
     => action -> m ()
@@ -493,18 +493,16 @@ translateCollapsed m = do
             setName (getName m) $
             setParameters (getParameters m) $
             setPrecondition (getPrecondition m) $
-            setEffect (getEffect m :: Maybe (Expr eff)) $
+            setEffect (getEffect m) $
             template
-    let precond = conjunct $
-            controlP (getName method) n (taskArgs task) mid
-            : (eNot $ startingP (undefined :: TermExpr))
-            : (maybe [] conjuncts $ getPrecondition action)
-    let effect = conjunct $
-            eNot (controlP (getName method) n (taskArgs task) mid)
-            : (maybe [] conjuncts $ getEffect action)
+    let precond = flip (:) (getPrecondition action) $ (Nothing, conjunct $
+            [ controlP (getName method) n (taskArgs task) mid
+            , (eNot $ startingP (undefined :: TermExpr))])
+    let effect = flip (:) (getEffect action) $ ([], Nothing,
+            [eNot (controlP (getName method) n (taskArgs task) mid)])
     addAction $
-        setPrecondition (Just precond) $
-        setEffect (Just effect) $
+        setPrecondition precond $
+        setEffect effect $
         action
 
 
@@ -568,11 +566,11 @@ constrainAction :: forall m a pre eff.
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) m,
      HasName a,
      HasParameters TypedVarExpr a,
-     HasPrecondition (Expr pre) a,
-     HasEffect (Expr eff) a,
+     HasPrecondition (Maybe String, Expr pre) a,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) a,
      Atomic TermExpr :<: pre, Atomic TermExpr :<: eff,
-     Conjuncts pre pre, Conjuncts eff eff,
-     And :<: pre, And :<: eff,
+     Conjuncts pre pre, 
+     And :<: pre, 
      Not :<: pre, Not :<: eff)
     => TaskIdUse -> m -> Int -> a -> (Maybe TermExpr, Maybe TermExpr, a)
 constrainAction useId m n a =
@@ -608,22 +606,22 @@ constrainAction useId m n a =
             (++) (getParameters a) $
             map (flip eTyped [htnIdT] :: Expr Var -> TypedVarExpr) $
             catMaybes [topid, nextid, mid, tid] ++ incomingIds
-        precond = conjunct $
+        precond = 
+            flip (:) (getPrecondition a) $ (Nothing, conjunct $
             [releaseP name n' mid n pid | (n', pid) <- prevts]
             ++ [eNot $ runningIdP pid | pid <- incomingIds]
             ++ maybeToList (liftM topIdP (topid :: Maybe TermExpr))
-            ++ maybeToList (liftM nextIdP (topid :: Maybe TermExpr) `ap` nextid)
-            ++ maybe [] conjuncts (getPrecondition a)
-        effects = conjunct $ 
+            ++ maybeToList (liftM nextIdP (topid :: Maybe TermExpr) `ap` nextid))
+        effects = flip (:) (getEffect a) $
+            ([], Nothing, 
             [eNot $ releaseP name n' mid n t' | (n', t') <- prevts]
             ++ idEffects topid nextid returnIds
-            ++ [releaseP name n mid n' tid | n' <- nextts]
-            ++ maybe [] conjuncts (getEffect a)
+            ++ [releaseP name n mid n' tid | n' <- nextts])
     in
     (mid, tid,
     setParameters params $
-    setPrecondition (Just precond) $
-    setEffect (Just effects) $
+    setPrecondition precond $
+    setEffect effects $
     a)
     where
     fixIds :: forall f . (Var :<: f) => Maybe (Expr f) -> Bool -> [(Int, Maybe (Expr f))] -> (Maybe (Expr f), [Expr f])
@@ -656,12 +654,12 @@ translateTask :: forall m dom sdom template action pre eff .
     (MonadState (dom, TranslationData sdom template) m, MonadPlus m,
      HasName action, HasName template,
      HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
-     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     HasPrecondition (Maybe String, Expr pre) action, HasPrecondition (Maybe String, Expr pre) template,
      Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
      And :<: pre, Conjuncts pre pre,
-     HasEffect (Expr eff) action, HasEffect (Expr eff) template,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, 
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr :<: eff, AtomicExpression TermExpr eff, Not :<: eff,
-     And :<: eff, Conjuncts eff eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists action, HasTaskConstraints action,
      HasActions template dom)
@@ -676,21 +674,19 @@ translateTask m n task = do
             setName name $
             setParameters (taskArgs task) $
             template
-        precond :: (Expr pre)
-        precond = conjunct $
-                controlP (getName m) n (map (liftE . removeType) (taskArgs task)) mid
-                : eNot (startingP (undefined :: TermExpr))
-                : maybe [] conjuncts (getPrecondition a)
-        effect :: (Expr eff)
-        effect = conjunct $
+        precond :: [(Maybe String, Expr pre)]
+        precond = flip (:) (getPrecondition a) $ (Nothing, conjunct
+                [ controlP (getName m) n (map (liftE . removeType) (taskArgs task)) mid
+                , eNot (startingP (undefined :: TermExpr))])
+        effect :: [([TypedVarExpr], Maybe GDExpr, [Expr eff])]
+        effect = flip (:) (getEffect a) $ ([], Nothing,
                 (eNot $ controlP (getName m) n (map (liftE . removeType) (taskArgs task)) mid)
                 : (startingP (undefined :: TermExpr))
-                : taskP (taskName task) (map (liftE . removeType) (taskArgs task)) tid
-                : (if tid == mid then [] else maybeToList (liftM runningIdP $ tid))
-                ++ maybe [] conjuncts (getEffect a)
+                : (taskP (taskName task) (map (liftE . removeType) (taskArgs task)) tid)
+                : (if tid == mid then [] else maybeToList (liftM runningIdP $ tid)))
     addAction $
-        setPrecondition (Just precond) $
-        setEffect (Just effect) $
+        setPrecondition precond $
+        setEffect effect $
         a
 
 ignoreCollapsedTasks :: (MonadState (dom, TranslationData sdom template) m
@@ -711,12 +707,11 @@ translateMethod :: forall m dom sdom template action pre eff .
      HasPredicates (Expr (Atomic TypedVarExpr)) dom,
      HasName action, HasName template,
      HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
-     HasPrecondition (Expr pre) action, HasPrecondition (Expr pre) template,
+     HasPrecondition (Maybe String, Expr pre) action, HasPrecondition (Maybe String, Expr pre) template,
      Atomic TermExpr :<: pre, Not :<: pre,
      And :<: pre, Conjuncts pre pre,
-     HasEffect (Expr eff) action, HasEffect (Expr eff) template,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr :<: eff, Not :<: eff,
-     And :<: eff, Conjuncts eff eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists action, HasTaskConstraints action,
      HasActions template dom,
@@ -743,20 +738,20 @@ translateMethod taskTransl m = do
             (taskArgs $ taskDef sdom t)
             (liftM (flip eTyped [htnIdT]) hId)
             | (n, t) <- tasks]
-    let precond = conjunct $
-            (startingP (undefined :: TermExpr)) :
-            taskP (taskName task) (taskArgs task) hId :
-            (maybe [] conjuncts $ getPrecondition m)
-    let effect = conjunct $
-            eNot (startingP (undefined :: TermExpr)) :
-            eNot (taskP (taskName task) (taskArgs task) hId) :
-            taskPs ++
-            (maybe [] conjuncts $ getEffect m)
+    let precond =
+            (Nothing, startingP (undefined :: TermExpr))
+            : (Nothing, taskP (taskName task) (taskArgs task) hId)
+            : getPrecondition m
+    let effect = ([], Nothing, 
+                (eNot (startingP (undefined :: TermExpr)))
+                : (eNot (taskP (taskName task) (taskArgs task) hId))
+                : taskPs) 
+            : getEffect m
     let action = 
             setName (getName m) $
             setParameters params $
-            setPrecondition (Just precond) $
-            setEffect (Just effect) $
+            setPrecondition precond $
+            setEffect effect $
             template
     ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) pId)
     addPreds (
@@ -772,10 +767,10 @@ translateMethod taskTransl m = do
         let n = lastN m
         let (mid, _, a) = constrainAction useId m n $
                 setName (getName m ++ '_' : show n) template
-        let effect' = conjunct $
-                eNot (runningIdP $ fromJust mid) 
-                : maybe [] conjuncts (getEffect a)
-        addAction $ setEffect (Just effect') a
+        let effect' =
+                ([], Nothing, [eNot $ runningIdP $ fromJust mid])
+                : getEffect a
+        addAction $ setEffect effect' a
     return ()
 
 {-

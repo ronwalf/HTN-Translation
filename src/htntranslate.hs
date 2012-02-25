@@ -24,7 +24,7 @@ import System.IO
 import Text.ParserCombinators.Parsec (CharParser, runParser)
 import Text.ParserCombinators.Parsec.Token (parens)
 
-import Planning.PDDL.Parser (pddlExprLexer, atomicParser)
+import Planning.PDDL.Parser (atomicParser)
 
 import HTNTranslation.HTNPDDL
 import HTNTranslation.HTNProblemLift

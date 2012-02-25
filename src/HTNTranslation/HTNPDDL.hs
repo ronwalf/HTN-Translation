@@ -41,7 +41,7 @@ import Text.PrettyPrint
 import Planning.PDDL.PDDL3_0
 import Planning.PDDL.Parser
 
-data HDomain a b = HDomain
+data HDomain a b g = HDomain
     Name
     Requirements
     (Types TypedTypeExpr)
@@ -50,20 +50,22 @@ data HDomain a b = HDomain
     (TaskHead [StdTaskDef])
     (Functions TypedFuncSkelExpr)
     (Constraints a)
+    (Derived (TypedPredicateExpr, g))
     (Actions b)
     deriving (Data, Eq, Typeable)
 
-instance (Data a, Data b) => HasName (HDomain a b)
-instance (Data a, Data b) => HasRequirements (HDomain a b)
-instance (Data a, Data b) => HasTypes TypedTypeExpr (HDomain a b)
-instance (Data a, Data b) => HasConstants TypedConstExpr (HDomain a b)
-instance (Data a, Data b) => HasPredicates TypedPredicateExpr (HDomain a b)
-instance (Data a, Data b) => HasTaskHead [StdTaskDef] (HDomain a b)
-instance (Data a, Data b) => HasFunctions TypedFuncSkelExpr (HDomain a b)
-instance (Data a, Data b) => HasConstraints a (HDomain a b)
-instance (Data a, Data b) => HasActions b (HDomain a b)
-instance (Data a, Data b, PDDLDoc a, PDDLDoc b) =>
-    PDDLDoc (HDomain a b) where
+instance (Data a, Data b, Data g) => HasName (HDomain a b g)
+instance (Data a, Data b, Data g) => HasRequirements (HDomain a b g)
+instance (Data a, Data b, Data g) => HasTypes TypedTypeExpr (HDomain a b g)
+instance (Data a, Data b, Data g) => HasConstants TypedConstExpr (HDomain a b g)
+instance (Data a, Data b, Data g) => HasPredicates TypedPredicateExpr (HDomain a b g)
+instance (Data a, Data b, Data g) => HasTaskHead [StdTaskDef] (HDomain a b g)
+instance (Data a, Data b, Data g) => HasFunctions TypedFuncSkelExpr (HDomain a b g)
+instance (Data a, Data b, Data g) => HasConstraints a (HDomain a b g)
+instance (Data a, Data b, Data g) => HasDerived (TypedPredicateExpr, g) (HDomain a b g)
+instance (Data a, Data b, Data g) => HasActions b (HDomain a b g)
+instance (Data a, Data b, Data g, PDDLDoc a, PDDLDoc b, PDDLDoc g) =>
+    PDDLDoc (HDomain a b g) where
     pddlDoc domain = parens $ ($$) (text "define") $ vcat $
         parens (text "domain" <+> text (getName domain)) :
          -- Requirement strings are prefixed with ':'
@@ -72,12 +74,18 @@ instance (Data a, Data b, PDDLDoc a, PDDLDoc b) =>
         docList (parens . sep . (text ":predicates" :) . map pddlDoc) (getPredicates domain) :
         docList (parens . sep . (text ":tasks" :) . map pddlDoc) (getTaskHead domain) :
         space :
-        intersperse space [pddlDoc x | x <- getActions domain]
+        intersperse space (
+        (flip map (getDerived domain) (\(p,b) ->
+            parens $ sep $
+              [ text ":derived"
+              , pddlDoc p
+              , pddlDoc b ]))
+          ++ (map pddlDoc $ getActions domain))
 
-instance (Data a, Data b, PDDLDoc a, PDDLDoc b) => Show (HDomain a b) where
+instance (Data a, Data b, Data g, PDDLDoc a, PDDLDoc b, PDDLDoc g) => Show (HDomain a b g) where
     show domain = show $ pddlDoc domain
     
-emptyHDomain :: forall a b. HDomain a b
+emptyHDomain :: forall a b g. HDomain a b g
 emptyHDomain = HDomain
     (Name "empty")
     (Requirements [])
@@ -87,10 +95,11 @@ emptyHDomain = HDomain
     (TaskHead [])
     (Functions [])
     (Constraints Nothing)
+    (Derived [])
     (Actions [])
 
 
-type StandardHTNDomain = HDomain ConstraintGDExpr StandardMethod
+type StandardHTNDomain = HDomain ConstraintGDExpr StandardMethod GDExpr
 type StandardHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr ConstraintGDExpr (Expr (Atomic ConstTermExpr))
 
 --deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
@@ -363,21 +372,45 @@ defaultMethod :: forall c e. Method c e
 defaultMethod = Method (Name "")
     (Parameters [])
     (TaskHead Nothing)
-    (Precondition Nothing)
-    (Effect Nothing)
+    (Precondition [])
+    (Effect [])
     (TaskLists [])
     (TaskConstraints [])
 
-instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc (Method (Expr c) (Expr e)) where
+instance (Data p, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc [t], PDDLDoc ep, PDDLDoc e) 
+    => PDDLDoc (Method (Maybe String, p) ([t], Maybe ep, [e])) where
     pddlDoc m = parens $ sep  ([
         (if null (getTaskLists m) then text ":action" else text ":method") <+> text (getName m),
         text ":parameters" <+> parens (pddlDoc $ getParameters m),
         docMaybe ((text ":task" <+>) . pddlDoc) (getTaskHead m),
-        docMaybe ((text ":precondition" <+>) . pddlDoc) (getPrecondition m),
-        docMaybe ((text ":effect" <+>) . pddlDoc) (getEffect m)]
+        docList ((text ":precondition" <+>) . andDoc prefDoc) $ getPrecondition m,
+        docList ((text ":effect" <+>) . andDoc id . concatMap effectDoc) $ getEffect m]
         ++ map tasklist (getTaskLists m)
         ++ [docList ((text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints m)])
         where
+            andDoc :: forall a . (a -> Doc) -> [a] -> Doc
+            andDoc f [t] = f t
+            andDoc f tl = parens $ sep $
+                text "and"
+                : map f tl
+            prefDoc :: (Maybe String, p) -> Doc
+            prefDoc (Nothing, p) = pddlDoc p
+            prefDoc (Just n, p) = parens $ sep [
+                text "preference",
+                text n,
+                pddlDoc p ]
+            effectDoc :: ([t], Maybe ep, [e]) -> [Doc]
+            effectDoc ([], ep, el) = condDoc ep el
+            effectDoc (tl, ep, el) = [parens $ sep [
+                text "forall",
+                parens (pddlDoc tl),
+                andDoc id $ condDoc ep el]]
+            condDoc :: Maybe ep -> [e] -> [Doc]
+            condDoc Nothing el = map pddlDoc el
+            condDoc (Just ep) el = [parens $ sep [
+                text "when",
+                pddlDoc ep,
+                andDoc pddlDoc el ]]
             tasklist :: TaskList -> Doc
             tasklist (Just name, tl) = text ":tasks" <+> parens (sep $
                 (text name) : map pddlDoc tl)
@@ -388,7 +421,7 @@ instance (Data (Expr c), Data (Expr e), PDDLDocExpr c, PDDLDocExpr e) => PDDLDoc
                 
         
 
-type StandardMethod = Method PreferenceGDExpr EffectDExpr
+type StandardMethod = Method PDDLPrecond PDDLEffect
 
 
 htnDescLanguage :: forall st. T.LanguageDef st
@@ -402,13 +435,21 @@ htnDescLexer = T.makeTokenParser htnDescLanguage
 
 htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
 htnParser = let 
-        condParser = prefGDParser pddlExprLexer 
-        effParser = effectDParser pddlExprLexer
         constraintP = constraintGDParser pddlExprLexer
-        actions =
-            (methodParser htnDescLexer condParser effParser :: CharParser StandardHTNDomain ())
+        prefP = prefListParser pddlExprLexer (gdParser pddlExprLexer :: CharParser StandardHTNDomain GDExpr)
+        effectP = ucEffectParser pddlExprLexer
+            (gdParser pddlExprLexer :: CharParser StandardHTNDomain GDExpr)
+            (effectDParser pddlExprLexer :: CharParser StandardHTNDomain EffectDExpr)
     in
-    domainParser htnDescLexer (hDomainInfoParser htnDescLexer constraintP) actions
+    domainParser htnDescLexer $
+        (hDomainInfoParser htnDescLexer constraintP)
+        <|>
+        derivedParser pddlDescLexer
+          (atomicTypeParser pddlExprLexer (varParser pddlExprLexer) :: CharParser st TypedPredicateExpr)
+          (gdParser pddlExprLexer)
+        <|>
+        (methodParser htnDescLexer prefP effectP)
+
 
 htnProblemParser :: GenParser Char StandardHTNProblem StandardHTNProblem
 htnProblemParser = 
@@ -446,8 +487,8 @@ methodParser :: forall st p e .
     (HasActions (Method p e) st,
     Data p, Data e) => 
     T.TokenParser st -> 
-    CharParser st p -> 
-    CharParser st e ->
+    CharParser st [p] -> 
+    CharParser st [e] ->
     CharParser st ()
 methodParser mylex condParser effParser = do
     let 
@@ -466,7 +507,7 @@ methodInfoParser :: (HasParameters TypedVarExpr a,
     HasTaskLists a,
     HasTaskConstraints a,
     Atomic TermExpr :<: f) =>
-    T.TokenParser st -> CharParser st b -> CharParser st e -> CharParser st (a -> a)
+    T.TokenParser st -> CharParser st [b] -> CharParser st [e] -> CharParser st (a -> a)
 methodInfoParser mylex condParser effParser =
     paramParser mylex
     <|>
