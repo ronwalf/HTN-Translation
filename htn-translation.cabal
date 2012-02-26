@@ -5,7 +5,7 @@ Build-Type:     Simple
 License:	BSD3
 License-File:	LICENSE
 Author:		Ron Alford
-Homepage:	http://www.cs.umd.edu/~ronwalf/software/planning/
+Homepage:	https://github.com/ronwalf/HTN-Translation
 Category:	AI
 Synopsis:	A library for translating HTNs into PDDL domains
 
