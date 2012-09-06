@@ -3,7 +3,8 @@
 HTNTranslation is a program for translating [Hierarchical Task Network](http://www.aaai.org/Papers/AAAI/1994/AAAI94-173.pdf) problems into [PDDL](http://www.jair.org/media/1129/live-1129-2132-jair.pdf).  This is an extension of the work described in "[Translating HTNs to PDDL](http://www.umiacs.umd.edu/publications/translating-htns-pddl-small-amount-domain-knowledge-can-go-long-way)," handling both totally ordered and partially ordered subtasks.
 
 ## Requirements and installation.
-HTNTranslation requires a recent copy of [Haskell](http://hackage.haskell.org/platform/), being most recently tested on GHC 7.4.2.  Beyond that, we also require a copy of the (Planning)[http://github.com/ronwalf/Planning] Haskell PDDL parsing and representation library.  After downloading and unpacking both Planning and HTNTranslation, install them using [Cabal](http://www.haskell.org/cabal/).  For example, to install for just the current user:
+HTNTranslation requires a recent copy of [Haskell](http://hackage.haskell.org/platform/), being most recently tested on GHC 7.4.2.  Beyond that, we also require a copy of the [Planning](http://github.com/ronwalf/Planning] Haskell PDDL parsing and representation library.  After downloading and unpacking both Planning and HTNTranslation, install them using [Cabal](http://www.haskell.org/cabal/).  For example, to install for just the current user:
+
     $ cd <planning dir>
     $ cabal install --user
     ...
@@ -23,6 +24,7 @@ The syntax is based on PDDL, with task names specified much like predicates, and
 ### Task specification
 In the header of the domain file, all task names should be defined.
 From the `toy.hpddl` example included in the distribution:
+
     (:tasks
       (swap ?x - OBJ ?y - OBJ)
       (donothing)
@@ -31,6 +33,7 @@ From the `toy.hpddl` example included in the distribution:
 
 ### Method and operator  specification
 Methods like actions, but without effects and with task lists.  Again, from the `toy.hpddl` example:
+
     (:method swap1
      :parameters (?x - OBJ ?y - OBJ)
      :task (swap ?x ?y)
@@ -41,6 +44,7 @@ In a break with other HTN systems, there is no syntactic distinction between pri
 We implement primitive tasks by adding a `:task (...)` field to an operator.  The only restriction to what
 task an operator may implement is that all the variables in the `:task (...)` field must be in the action's
 parameter list:
+
     (:action pickup
      :parameters (?x - OBJ)
      :task (pickup ?x)
@@ -52,6 +56,7 @@ A method may have one or more `:tasks (...)` field.  The order of the task names
 ordering constraints over the subtasks.  So in the above `swap1` example, we must `(drop ?x)` before we `(pickup ?y)`.
 
 We can specify arbitrary partial orders by naming the task fields and adding an `:ordering (..)` constraint.  From the `examples/toy/ordering.hpddl` example:
+
     (:method t0
      :parameters ()
      :task (t0)
@@ -60,6 +65,7 @@ We can specify arbitrary partial orders by naming the task fields and adding an 
      :tasks (j (t2))
      :tasks (k (c))
      :ordering ( (h i) (h j) (i k) (j k) ))
+
 The `t0` method implements the task `(t0)` and has four subtasks, `(c)`, `(t1)`, `(t2)`, and `(c)`.  Here we name each of the subtasks `h` through `k`, and then restrict `h` to come before `i` and `j`, and `i` and `j` to come before `k`.  This lets us interleave the decomposition of `(t1)` and `(t2)`.
 
 
