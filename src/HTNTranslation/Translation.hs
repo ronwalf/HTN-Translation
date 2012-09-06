@@ -9,7 +9,8 @@
   IncoherentInstances,
   MultiParamTypeClasses,
   ParallelListComp,
-  ScopedTypeVariables
+  ScopedTypeVariables,
+  TypeOperators
   #-}
 module HTNTranslation.Translation
 where
@@ -230,7 +231,7 @@ translateProblem template useId numIds problem =
             setInitial (getInitial p 
                 ++ [startingP (undefined :: ConstTermExpr)
                    , taskP (taskName t) (taskArgs t) (Just $ htnIdC 1) 
-                   , runningIdP (htnIdC 1)]
+                   , runningIdP (htnIdC 1 :: ConstTermExpr)]
                 ++ idList [2..numIds]) $
             p
         | otherwise =
@@ -245,8 +246,8 @@ translateProblem template useId numIds problem =
     idList :: [Int] -> [Expr f]
     idList [] = []
     idList nl@(h:_) =
-        topIdP (htnIdC h) :
-        [ nextIdP (htnIdC c1) (htnIdC c2) | c1 <- nl | c2 <- tail nl ]
+        topIdP (htnIdC h :: ConstTermExpr) :
+        [ nextIdP (htnIdC c1 :: ConstTermExpr) (htnIdC c2) | c1 <- nl | c2 <- tail nl ]
 
 
 ---------------------
@@ -449,7 +450,7 @@ translateAction m = do
     let effect = flip (:) (getEffect m) $ ([], Nothing,
             (eNot (startingP (undefined :: TermExpr)))
             : (eNot (taskP (taskName task) (taskArgs task) mId))
-            : (if (useId $ taskName task) then [eNot (runningIdP $ eVar hId)] else []))
+            : (if (useId $ taskName task) then [eNot $ runningIdP (eVar hId :: TermExpr)] else []))
     let action = 
             setName (getName m) $
             setParameters params $
@@ -608,15 +609,15 @@ constrainAction useId m n a =
             catMaybes [topid, nextid, mid, tid] ++ incomingIds
         precond = 
             flip (:) (getPrecondition a) $ (Nothing, conjunct $
-            [releaseP name n' mid n pid | (n', pid) <- prevts]
-            ++ [eNot $ runningIdP pid | pid <- incomingIds]
+            [releaseP name n' mid n pid | (n', pid :: Maybe TermExpr) <- prevts]
+            ++ [eNot $ runningIdP (pid :: TermExpr) | pid <- incomingIds]
             ++ maybeToList (liftM topIdP (topid :: Maybe TermExpr))
             ++ maybeToList (liftM nextIdP (topid :: Maybe TermExpr) `ap` nextid))
         effects = flip (:) (getEffect a) $
             ([], Nothing, 
-            [eNot $ releaseP name n' mid n t' | (n', t') <- prevts]
+            [eNot $ releaseP name n' (mid :: Maybe TermExpr) n t' | (n', t') <- prevts]
             ++ idEffects topid nextid returnIds
-            ++ [releaseP name n mid n' tid | n' <- nextts])
+            ++ [releaseP name n (mid :: Maybe TermExpr) n' tid | n' <- nextts])
     in
     (mid, tid,
     setParameters params $
@@ -736,7 +737,7 @@ translateMethod taskTransl m = do
     sdom <- getSDomain
     let controlPreds = [ controlP (getName m) n
             (taskArgs $ taskDef sdom t)
-            (liftM (flip eTyped [htnIdT]) hId)
+            (liftM (flip eTyped [htnIdT] :: Expr Var -> TypedVarExpr ) hId)
             | (n, t) <- tasks]
     let precond =
             (Nothing, startingP (undefined :: TermExpr))
