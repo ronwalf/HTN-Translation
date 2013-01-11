@@ -31,7 +31,7 @@ In the header of the domain file, all task names should be defined.  From the `t
       (drop ?x - OBJ))
 
 ### Method and operator  specification
-Methods like actions, but without effects and with task lists.  Again, from the `toy.hpddl` example:
+Methods are specified much like actions, but without effects and with task lists.  Again, from the `toy.hpddl` example:
 
     (:method swap1
      :parameters (?x - OBJ ?y - OBJ)
