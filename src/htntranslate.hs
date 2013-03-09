@@ -29,6 +29,7 @@ import Planning.PDDL.Parser (atomicParser)
 import HTNTranslation.HTNPDDL
 import HTNTranslation.HTNProblemLift
 import HTNTranslation.Translation
+import qualified HTNTranslation.CETranslation as CE
 import HTNTranslation.Typing
 
 type TranslationDef = ([TaskIdUseFunc Maybe], [StandardMethod -> StateT (PDDLDomain, TranslationData StandardHTNDomain PDDLAction)  Maybe ()])
@@ -60,7 +61,8 @@ translations =
     ]
 
 data Options = Options
-    { optNumIds :: Int
+    { optCE :: Bool
+    , optNumIds :: Int
     , optTranslation :: TranslationDef
     , optLift :: Maybe (Expr (Atomic ConstTermExpr))
     , optPostfix :: String
@@ -69,7 +71,8 @@ data Options = Options
 
 defaultOptions :: Options
 defaultOptions = Options
-    { optNumIds = 0
+    { optCE = True
+    , optNumIds = 0
     , optTranslation = basicTranslation
     , optLift = Nothing
     , optPostfix = ".pddl"
@@ -84,18 +87,21 @@ options =
                 [(ids, "")] -> return $ opts { optNumIds = ids}
                 _ -> fail "Cannot parse number of identifiers")
          "NUM")
-         "number of identifiers"
+         "Manually set the number of identifiers to insert."
     , Option ['l'] ["lift"]
         (ReqArg (\taskstr opts -> do
             task <- errCheck $ runParser taskParser () taskstr taskstr
             return $ opts { optLift = Just task })
         "TASK")
         "lift standard PDDL problems into HTNPDDL"
+    , Option ['s'] ["strips"]
+        (NoArg (\opts -> return $ opts { optCE = False }))
+        "Use a roughly STRIPS-compatible translation (requires setting -i)"
     , Option ['o'] ["opt"]
         (OptArg (\ level opts -> return $ 
             opts { optTranslation = maybe (snd $ last translations) (fromJust . flip lookup translations) level})
          "LEVEL")
-        (intercalate ", " (map fst translations))
+        ("Optimization level (STRIPS translation only).  LEVEL=" ++ intercalate ", " (map fst translations))
     , Option ['p'] ["postfix"]
         (ReqArg (\pfix opts -> return $ opts { optPostfix = pfix })
         "POSTFIX")
@@ -127,8 +133,10 @@ processProblem :: Options -> TaskIdUse -> String -> IO ()
 processProblem opts useId fname = do
     contents <- readFile fname
     problem <- errCheck $ parseHTNProblem fname contents
-    let problem' = translateProblem emptyProblem useId (optNumIds opts) $
-            maybe problem (flip liftProblem problem) $ optLift opts
+    let lifted = maybe problem (flip liftProblem problem) $ optLift opts
+    let problem' = if (optCE opts)
+            then CE.translateProblem emptyProblem (optNumIds opts) lifted
+                else translateProblem emptyProblem useId (optNumIds opts) lifted
     saveFile opts fname $ show $ pddlDoc problem'
     return ()
 
@@ -156,8 +164,10 @@ main = do
     when (optVerbose opts) $ do
         putStrLn "Task types:"
         mapM_ (\(t, tt) -> putStrLn $ t ++ ": " ++ show tt) $ Map.toList typemap 
-    let tdomain = translateDomain emptyDomain defaultAction domain typemap idUse $
-            snd $ optTranslation opts
+    let tdomain = if (optCE opts) 
+            then CE.translateDomain emptyDomain defaultAction domain [CE.translateUncontrolled, CE.translateAction, CE.translateMethod]
+                else translateDomain emptyDomain defaultAction domain typemap idUse $
+                    snd $ optTranslation opts
     saveFile opts domFile $ show $ pddlDoc tdomain
     mapM_ (processProblem opts idUse) probFiles 
     return ()

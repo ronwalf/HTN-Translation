@@ -147,7 +147,8 @@ copyDomainInfo ::
     HasConstants c a, HasConstants c b,
     HasPredicates p a, HasPredicates p b,
     HasFunctions f a, HasFunctions f b,
-    HasConstraints d a, HasConstraints d b)
+    HasConstraints d a, HasConstraints d b,
+    HasDerived dr a, HasDerived dr b)
     => b -> a -> b
 copyDomainInfo template domain =
     setName (getName domain) $
@@ -157,6 +158,7 @@ copyDomainInfo template domain =
     setPredicates (getPredicates domain) $
     setFunctions (getFunctions domain) $
     setConstraints (getConstraints domain) $
+    setDerived (getDerived domain) $
     template
 
 -- Create task start/control predicates
@@ -192,7 +194,7 @@ translateProblem :: forall template problem g c f .
     HasRequirements template, HasRequirements problem,
     HasConstants TypedConstExpr template, HasConstants TypedConstExpr problem,
     HasGoal (Expr g) template, HasGoal (Expr g) problem, 
-    PDDLAtom :<: g, And :<: g, Not :<: g,
+    PDDLAtom :<: g, And :<: g, Not :<: g, Conjuncts g g,
     HasConstraints c template, HasConstraints c problem,
     HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem,
     HasInitial (Expr f) template, HasInitial (Expr f) problem,
@@ -211,8 +213,7 @@ translateProblem template useId numIds problem =
     where
     -- BUGBUG This only works if the initial task uses an htn id (or we use a goal)
     goal :: Expr g
-    goal = fromMaybe 
-        htnStopped $
+    goal = maybe htnStopped (\g -> conjunct [htnStopped, g]) $
         getGoal problem
     htnStopped :: Expr g
     htnStopped = eAnd $
@@ -262,6 +263,7 @@ translateDomain :: (HasName a, HasName b,
     HasTaskHead [StdTaskDef] a,
     HasFunctions f a, HasFunctions f b,
     HasConstraints d a, HasConstraints d b,
+    HasDerived dr a, HasDerived dr b,
     HasActions action a, HasActions template b) =>
     b -> template -> a -> TypeMap -> TaskIdUse -> [action -> StateT (b, TranslationData a template) Maybe ()] -> b
 translateDomain domTemplate actionTemplate dom typeMap useId transl =
