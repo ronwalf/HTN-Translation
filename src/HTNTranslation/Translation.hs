@@ -39,7 +39,7 @@ htnIdC :: (Const :<: f) => Int -> Expr f
 htnIdC n = eConst $ "htn_id" ++ show n
 
 -- Predicates
-startingP :: (AtomicExpression t f) => t -> Expr f
+startingP :: (Atomic t :<: f, AtomicExpression t f) => t -> Expr f
 startingP _ = eAtomic "htn_starting" []
 taskP :: (AtomicExpression t f) => String -> [t] -> Maybe t -> Expr f
 taskP name terms tid =

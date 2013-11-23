@@ -56,7 +56,7 @@ firstFreeP :: forall a f. (AtomicExpression a f) => a -> Expr f
 firstFreeP id1 = eAtomic "htn_first_free" [id1]
 nextFreeP :: forall a f. (AtomicExpression a f) => a -> a -> Expr f
 nextFreeP id1 id2 = eAtomic "htn_next_free" [id1, id2]
-finishedP :: forall a f. (AtomicExpression a f) => a -> Expr f
+finishedP :: forall a f. (Atomic a :<: f, AtomicExpression a f) => a -> Expr f
 finishedP _ = eAtomic "htn_finished" []
 
 
