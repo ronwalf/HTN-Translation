@@ -134,6 +134,7 @@ domainSetup template domain =
             [ topIdP $ htnIdP 1
             , nextIdP (htnIdP 1) (htnIdP 2)
             , usedIdP (htnIdP 1)
+            , usedBlockP (htnIdP 1) (htnIdP 2)
             , firstFreeP (htnIdP 1)
             , nextFreeP (htnIdP 1) (htnIdP 2)
             , constrainsP (htnIdP 1) (htnIdP 2)

@@ -172,7 +172,7 @@ callCounts = (\(CallCount n) -> n) . tinspect
 callCountTyper :: Typer d
 callCountTyper tm _ =
     flip Map.mapWithKey tm 
-    (\ task t -> addType t $ callCount $ (\(CallSpots cs) -> Set.size cs) $ tinspect t)
+    (\ _ t -> addType t $ callCount $ (\(CallSpots cs) -> Set.size cs) $ tinspect t)
     
 
 data Primitiveness e =
