@@ -113,7 +113,7 @@ options =
 
 saveFile :: Options -> String -> String -> IO ()
 saveFile opts name contents = do
-    let oname = takeWhile (/= '.') name ++ optPostfix opts
+    let oname = reverse (tail $ dropWhile (/= '.') $ reverse name) ++ optPostfix opts
     writeFile oname contents
    
 
