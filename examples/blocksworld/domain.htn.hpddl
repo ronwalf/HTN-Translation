@@ -1,0 +1,96 @@
+(define (domain blocks)
+  (:requirements :strips :disjunctive-preconditions)
+  (:types BLOCK)
+  (:predicates
+    (hand-empty)
+    (clear ?b - BLOCK)
+    (holding ?b - BLOCK)
+    (on ?top - BLOCK ?bottom - BLOCK)
+    (on-table ?b - BLOCK)
+    
+    (goal_on ?t - BLOCK ?b - BLOCK)
+    (goal_on-table ?b - BLOCK)
+    (goal_clear ?b - BLOCK)
+    (should-move ?b - BLOCK)
+    (done ?b - BLOCK)
+    )
+  (:tasks
+    (acquire)
+    (release)
+    (achieve-goals))
+
+  (:derived (should-move ?b - BLOCK) (and (goal_on-table ?b) (not (on-table ?b))))
+  (:derived (should-move ?b - BLOCK) (exists (?d - BLOCK) (and (goal_on ?b ?d) (not (on ?b ?d)))))
+  (:derived (should-move ?b - BLOCK) (exists (?d - BLOCK) (and (on ?b ?d) (should-move ?d))))
+  (:derived (done ?b - BLOCK) (not (should-move ?b)))
+
+  (:action pickup
+    :task (acquire)
+    :parameters (?b - BLOCK)
+    :precondition (and 
+      (hand-empty)
+      (clear ?b) 
+      (on-table ?b) 
+      (should-move ?b)
+      (exists (?a - BLOCK)
+            (and
+              (goal_on ?b ?a)
+              (not (should-move ?a))
+              (clear ?a))))
+    :effect (and
+      (not (hand-empty))
+      (not (clear ?b)) 
+      (not (on-table ?b))
+      (holding ?b)))
+
+  (:action putdown
+    :parameters (?b - BLOCK)
+    :task (release)
+    :precondition (holding ?b)
+    :effect (and
+      (hand-empty)
+      (not (holding ?b))
+      (on-table ?b) (clear ?b)))
+
+  (:action stack
+    :parameters (?top - BLOCK ?bottom - BLOCK)
+    :task (release)
+    :precondition (and
+      (holding ?top)
+      (goal_on ?top ?bottom)
+      (clear ?bottom)
+      (not (should-move ?bottom)))
+    :effect (and
+      (hand-empty)
+      (not (holding ?top))
+      (not (clear ?bottom))
+      (on ?top ?bottom)
+      (clear ?top)))
+
+  (:action unstack
+    :parameters (?top - BLOCK ?bottom - BLOCK)
+    :task (acquire)
+    :precondition (and
+      (hand-empty)
+      (clear ?top)
+      (on ?top ?bottom)
+      (should-move ?top))
+    :effect (and
+      (not (hand-empty))
+      (not (clear ?top))
+      (not (on ?top ?bottom))
+      (holding ?top)
+      (clear ?bottom)))
+  
+  (:method finished
+    :task (achieve-goals)
+    :precondition (forall (?b - BLOCK) (done ?b)))
+    
+  (:method achieve-goals
+    :task (achieve-goals)
+    :tasks (
+         (acquire)
+         (release)
+         (achieve-goals)
+         )))
+
