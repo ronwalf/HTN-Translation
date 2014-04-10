@@ -1,185 +1,191 @@
 (define
  (problem pfile_055)
  (:domain blocks)
- (:objects
-  b1 - BLOCK
-  b2 - BLOCK
-  b3 - BLOCK
-  b4 - BLOCK
-  b5 - BLOCK
-  b6 - BLOCK
-  b7 - BLOCK
-  b8 - BLOCK
-  b9 - BLOCK
-  b10 - BLOCK
-  b11 - BLOCK
-  b12 - BLOCK
-  b13 - BLOCK
-  b14 - BLOCK
-  b15 - BLOCK
-  b16 - BLOCK
-  b17 - BLOCK
-  b18 - BLOCK
-  b19 - BLOCK
-  b20 - BLOCK
-  b21 - BLOCK
-  b22 - BLOCK
-  b23 - BLOCK
-  b24 - BLOCK
-  b25 - BLOCK
-  b26 - BLOCK
-  b27 - BLOCK
-  b28 - BLOCK
-  b29 - BLOCK
-  b30 - BLOCK
-  b31 - BLOCK
-  b32 - BLOCK
-  b33 - BLOCK
-  b34 - BLOCK
-  b35 - BLOCK
-  b36 - BLOCK
-  b37 - BLOCK
-  b38 - BLOCK
-  b39 - BLOCK
-  b40 - BLOCK
-  b41 - BLOCK
-  b42 - BLOCK
-  b43 - BLOCK
-  b44 - BLOCK
-  b45 - BLOCK
-  b46 - BLOCK
-  b47 - BLOCK
-  b48 - BLOCK
-  b49 - BLOCK
-  b50 - BLOCK
-  b51 - BLOCK
-  b52 - BLOCK
-  b53 - BLOCK
-  b54 - BLOCK
-  b55 - BLOCK)
+ (:objects b1
+           b2
+           b3
+           b4
+           b5
+           b6
+           b7
+           b8
+           b9
+           b10
+           b11
+           b12
+           b13
+           b14
+           b15
+           b16
+           b17
+           b18
+           b19
+           b20
+           b21
+           b22
+           b23
+           b24
+           b25
+           b26
+           b27
+           b28
+           b29
+           b30
+           b31
+           b32
+           b33
+           b34
+           b35
+           b36
+           b37
+           b38
+           b39
+           b40
+           b41
+           b42
+           b43
+           b44
+           b45
+           b46
+           b47
+           b48
+           b49
+           b50
+           b51
+           b52
+           b53
+           b54
+           b55
+           - BLOCK)
  (:init
-  (armempty)
-  (clear b13)
-  (on-table b48)
-  (on b13 b52)
-  (on b52 b51)
-  (on b51 b16)
-  (on b16 b55)
-  (on b55 b29)
-  (on b29 b26)
-  (on b26 b50)
-  (on b50 b38)
-  (on b38 b15)
-  (on b15 b48)
-  (clear b44)
-  (on-table b44)
-  (clear b21)
-  (on-table b43)
-  (on b21 b49)
-  (on b49 b43)
-  (clear b3)
-  (on-table b39)
-  (on b3 b6)
-  (on b6 b28)
-  (on b28 b47)
-  (on b47 b20)
-  (on b20 b2)
-  (on b2 b4)
-  (on b4 b19)
-  (on b19 b24)
-  (on b24 b9)
-  (on b9 b1)
-  (on b1 b17)
-  (on b17 b23)
-  (on b23 b8)
-  (on b8 b46)
-  (on b46 b7)
-  (on b7 b39)
-  (clear b37)
-  (on-table b37)
-  (clear b54)
-  (on-table b34)
-  (on b54 b30)
-  (on b30 b34)
-  (clear b27)
-  (on-table b33)
-  (on b27 b10)
-  (on b10 b33)
-  (clear b32)
-  (on-table b18)
-  (on b32 b25)
-  (on b25 b11)
-  (on b11 b45)
+  (hand-empty)
+  (clear b36)
+  (on-table b54)
+  (on b36 b11)
+  (on b11 b54)
+  (clear b22)
+  (on-table b53)
+  (on b22 b34)
+  (on b34 b12)
+  (on b12 b37)
+  (on b37 b53)
+  (clear b51)
+  (on-table b51)
+  (clear b38)
+  (on-table b38)
+  (clear b17)
+  (on-table b35)
+  (on b17 b44)
+  (on b44 b1)
+  (on b1 b5)
+  (on b5 b30)
+  (on b30 b19)
+  (on b19 b21)
+  (on b21 b45)
   (on b45 b35)
-  (on b35 b22)
-  (on b22 b42)
-  (on b42 b12)
-  (on b12 b5)
-  (on b5 b40)
-  (on b40 b41)
-  (on b41 b36)
-  (on b36 b53)
-  (on b53 b31)
-  (on b31 b14)
-  (on b14 b18))
- (:goal
-  (and
-   (clear b47)
-   (on-table b27)
-   (on b47 b44)
-   (on b44 b14)
-   (on b14 b46)
-   (on b46 b7)
-   (on b7 b49)
-   (on b49 b11)
-   (on b11 b20)
-   (on b20 b16)
-   (on b16 b42)
-   (on b42 b5)
-   (on b5 b29)
-   (on b29 b27)
-   (clear b31)
-   (on-table b26)
-   (on b31 b4)
-   (on b4 b55)
-   (on b55 b35)
-   (on b35 b41)
-   (on b41 b45)
-   (on b45 b19)
-   (on b19 b26)
-   (clear b48)
-   (on-table b12)
-   (on b48 b25)
-   (on b25 b13)
-   (on b13 b36)
-   (on b36 b34)
-   (on b34 b3)
-   (on b3 b33)
-   (on b33 b1)
-   (on b1 b21)
-   (on b21 b43)
-   (on b43 b28)
-   (on b28 b15)
-   (on b15 b40)
-   (on b40 b22)
-   (on b22 b9)
-   (on b9 b17)
-   (on b17 b52)
-   (on b52 b39)
-   (on b39 b18)
-   (on b18 b37)
-   (on b37 b30)
-   (on b30 b53)
-   (on b53 b54)
-   (on b54 b10)
-   (on b10 b2)
-   (on b2 b32)
-   (on b32 b38)
-   (on b38 b51)
-   (on b51 b24)
-   (on b24 b23)
-   (on b23 b12)
-   (clear b50)
-   (on-table b6)
-   (on b50 b8)
-   (on b8 b6))))
+  (clear b52)
+  (on-table b33)
+  (on b52 b46)
+  (on b46 b33)
+  (clear b4)
+  (on-table b29)
+  (on b4 b47)
+  (on b47 b18)
+  (on b18 b42)
+  (on b42 b20)
+  (on b20 b39)
+  (on b39 b31)
+  (on b31 b55)
+  (on b55 b40)
+  (on b40 b32)
+  (on b32 b3)
+  (on b3 b2)
+  (on b2 b41)
+  (on b41 b29)
+  (clear b14)
+  (on-table b23)
+  (on b14 b24)
+  (on b24 b49)
+  (on b49 b23)
+  (clear b13)
+  (on-table b13)
+  (clear b10)
+  (on-table b6)
+  (on b10 b48)
+  (on b48 b16)
+  (on b16 b9)
+  (on b9 b28)
+  (on b28 b8)
+  (on b8 b7)
+  (on b7 b15)
+  (on b15 b50)
+  (on b50 b43)
+  (on b43 b25)
+  (on b25 b27)
+  (on b27 b26)
+  (on b26 b6))
+ (:goal (and
+         (clear b20)
+         (on-table b55)
+         (on b20 b34)
+         (on b34 b31)
+         (on b31 b55)
+         (clear b15)
+         (on-table b51)
+         (on b15 b38)
+         (on b38 b33)
+         (on b33 b35)
+         (on b35 b48)
+         (on b48 b26)
+         (on b26 b51)
+         (clear b1)
+         (on-table b50)
+         (on b1 b9)
+         (on b9 b41)
+         (on b41 b21)
+         (on b21 b53)
+         (on b53 b45)
+         (on b45 b52)
+         (on b52 b40)
+         (on b40 b27)
+         (on b27 b44)
+         (on b44 b50)
+         (clear b12)
+         (on-table b46)
+         (on b12 b43)
+         (on b43 b46)
+         (clear b47)
+         (on-table b42)
+         (on b47 b42)
+         (clear b13)
+         (on-table b37)
+         (on b13 b14)
+         (on b14 b4)
+         (on b4 b32)
+         (on b32 b3)
+         (on b3 b17)
+         (on b17 b10)
+         (on b10 b11)
+         (on b11 b5)
+         (on b5 b19)
+         (on b19 b23)
+         (on b23 b36)
+         (on b36 b49)
+         (on b49 b22)
+         (on b22 b24)
+         (on b24 b30)
+         (on b30 b18)
+         (on b18 b37)
+         (clear b29)
+         (on-table b28)
+         (on b29 b2)
+         (on b2 b28)
+         (clear b54)
+         (on-table b8)
+         (on b54 b25)
+         (on b25 b16)
+         (on b16 b8)
+         (clear b7)
+         (on-table b6)
+         (on b7 b39)
+         (on b39 b6))))

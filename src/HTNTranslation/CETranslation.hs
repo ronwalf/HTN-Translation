@@ -56,6 +56,8 @@ firstFreeP :: forall a f. (AtomicExpression a f) => a -> Expr f
 firstFreeP id1 = eAtomic "htn_first_free" [id1]
 nextFreeP :: forall a f. (AtomicExpression a f) => a -> a -> Expr f
 nextFreeP id1 id2 = eAtomic "htn_next_free" [id1, id2]
+runningP :: forall a f. (Atomic a :<: f, AtomicExpression a f) => a -> Expr f
+runningP _ = eAtomic "htn_running" []
 finishedP :: forall a f. (Atomic a :<: f, AtomicExpression a f) => a -> Expr f
 finishedP _ = eAtomic "htn_finished" []
 
@@ -138,6 +140,7 @@ domainSetup template domain =
             , firstFreeP (htnIdP 1)
             , nextFreeP (htnIdP 1) (htnIdP 2)
             , constrainsP (htnIdP 1) (htnIdP 2)
+            , runningP (htnIdP 1)
             , finishedP (htnIdP 1)
             ]
         preds = getPredicates domain 
@@ -167,9 +170,10 @@ domainSetup template domain =
                 [ topIdP id2
                 , usedIdP id2
                 , nextFreeP id2 id1 ])
+            , (runningP (htnIdP 1),
+                eExists [htnIdP 1] $ runningP id1)
             , (finishedP (htnIdP 1),
-                eForAll [htnIdP 1] $
-                eNot $ usedIdP id1)
+                eNot $ runningP id1)
             ]
     in
     setName (getName domain) $
