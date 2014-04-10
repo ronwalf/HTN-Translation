@@ -1,1 +1,0 @@
-htntranslate -oopt -i 4 -v ordering2.hpddl ordering-problem.hpddl &&  ff -o ordering2.pddl -f ordering-problem.pddl
