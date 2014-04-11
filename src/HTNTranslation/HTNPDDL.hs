@@ -343,7 +343,7 @@ findNextTasks m n =
             | otherwise = tcontext $ (name, tnt : ttl) : tl
             
 
-type StdTask = Expr (Atomic TermExpr)
+type StdTask = Expr PDDLAtom
 type StdTaskHead = Maybe StdTask 
 type StdTaskDef = Expr (Atomic TypedVarExpr)
 
@@ -506,7 +506,7 @@ methodInfoParser :: (HasParameters TypedVarExpr a,
     HasTaskHead (Maybe (Expr f)) a,
     HasTaskLists a,
     HasTaskConstraints a,
-    Atomic TermExpr :<: f) =>
+    PDDLAtom :<: f) =>
     T.TokenParser st -> CharParser st [b] -> CharParser st [e] -> CharParser st (a -> a)
 methodInfoParser mylex condParser effParser =
     paramParser mylex
@@ -522,7 +522,7 @@ methodInfoParser mylex condParser effParser =
     taskConstraintParser mylex
     
 
-taskHeadParser :: (Atomic TermExpr :<: f,
+taskHeadParser :: (PDDLAtom :<: f,
         HasTaskHead (Maybe (Expr f)) a) =>
     T.TokenParser st -> CharParser st (a -> a)
 
@@ -553,7 +553,7 @@ taskConstraintParser mylex = do
             (orderings ++ getTaskConstraints m) m
 
 
-taskParser :: (:<:) (Atomic TermExpr) f => 
+taskParser :: (PDDLAtom :<: f) => 
     T.TokenParser st -> CharParser st (Expr f)
 taskParser mylex = do
     name <- T.identifier mylex
