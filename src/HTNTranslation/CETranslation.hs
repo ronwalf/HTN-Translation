@@ -60,6 +60,10 @@ runningP :: forall a f. (Atomic a :<: f, AtomicExpression a f) => a -> Expr f
 runningP _ = eAtomic "htn_running" []
 finishedP :: forall a f. (Atomic a :<: f, AtomicExpression a f) => a -> Expr f
 finishedP _ = eAtomic "htn_finished" []
+constrainedP :: forall a f. (AtomicExpression a f) => a -> Expr f
+constrainedP id1 = eAtomic "htn_is_constrained" [id1]
+unconstrainedP :: forall a f. (AtomicExpression a f) => a -> Expr f
+unconstrainedP id1 = eAtomic "htn_is_not_constrained" [id1]
 
 
 ---------------
@@ -142,6 +146,8 @@ domainSetup template domain =
             , constrainsP (htnIdP 1) (htnIdP 2)
             , runningP (htnIdP 1)
             , finishedP (htnIdP 1)
+            , constrainedP (htnIdP 1)
+            , unconstrainedP (htnIdP 1)
             ]
         preds = getPredicates domain 
             ++ htnIdPs
@@ -171,13 +177,23 @@ domainSetup template domain =
                 , usedIdP id2
                 , nextFreeP id2 id1 ])
             , (runningP (htnIdP 1),
-                eExists [htnIdP 1] $ runningP id1)
+                eExists [htnIdP 1] $ usedIdP id1)
             , (finishedP (htnIdP 1),
                 eNot $ runningP id1)
+            , (constrainedP (htnIdP 1),
+                eExists [htnIdP 2] $ constrainsP id2 id1)
+            , (unconstrainedP (htnIdP 1),
+                eNot $ constrainedP id1)
+            ]
+        requirements = getRequirements domain ++
+            ["conditional-effects"
+            ,"derived-predicates"
+            ,"negative-preconditions"
+            ,"typing"
             ]
     in
     setName (getName domain) $
-    setRequirements (getRequirements domain) $
+    setRequirements (nub requirements) $
     setTypes types $
     setPredicates preds $
     setConstants (getConstants domain) $
@@ -338,7 +354,8 @@ translateAction m = do
     let params = getParameters m ++ [htnIdP 1]
     let precond = 
              [ (Nothing, taskP (taskName task) (taskArgs task) hid)
-             , (Nothing, eForAll [htnIdP 2] $ eNot $ constrainsP (htnIdV 2) hid)
+             -- , (Nothing, eForAll [htnIdP 2] $ eNot $ constrainsP (htnIdV 2) hid)
+             , (Nothing, unconstrainedP hid)
              ]
              ++ getPrecondition m
     let effect = 
@@ -392,7 +409,8 @@ translateMethod m = do
     let params = getParameters m ++ map htnIdP [1 .. length tasks]
     let precond = 
              [ (Nothing, taskP (taskName task) (taskArgs task) hid)
-             , (Nothing, eForAll [htnIdP 0] $ eNot $ constrainsP (htnIdV 0) hid)
+             --, (Nothing, eForAll [htnIdP 0] $ eNot $ constrainsP (htnIdV 0) hid)
+             , (Nothing, unconstrainedP hid)
              ]
              ++ alloc
              ++ getPrecondition m
