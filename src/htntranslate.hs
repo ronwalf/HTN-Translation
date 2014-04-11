@@ -31,6 +31,7 @@ import HTNTranslation.HTNProblemLift
 import HTNTranslation.Translation
 import qualified HTNTranslation.CETranslation as CE
 import HTNTranslation.Typing
+import HTNTranslation.ProgressionBounds as PB
 
 type TranslationDef = ([TaskIdUseFunc Maybe], [StandardMethod -> StateT (PDDLDomain, TranslationData StandardHTNDomain PDDLAction)  Maybe ()])
 
