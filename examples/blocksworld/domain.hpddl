@@ -13,6 +13,7 @@
     (goal_clear ?b - BLOCK)
     (should-move ?b - BLOCK)
     (done ?b - BLOCK)
+    (should-pickup ?b - BLOCK)
     )
   (:tasks
     (acquire)
@@ -24,6 +25,9 @@
   (:derived (should-move ?b - BLOCK) (exists (?d - BLOCK) (and (on ?b ?d) (should-move ?d))))
   (:derived (done ?b - BLOCK) (not (should-move ?b)))
 
+  (:derived (should-pickup ?b - BLOCK) (exists (?d - BLOCK) 
+    (and (goal_on ?b ?d) (done ?d) (clear ?d))))
+
   (:action pickup
     :task (acquire)
     :parameters (?b - BLOCK)
@@ -31,12 +35,7 @@
       (hand-empty)
       (clear ?b) 
       (on-table ?b) 
-      (should-move ?b)
-      (exists (?a - BLOCK)
-            (and
-              (goal_on ?b ?a)
-              (not (should-move ?a))
-              (clear ?a))))
+      (should-pickup ?b))
     :effect (and
       (not (hand-empty))
       (not (clear ?b)) 
@@ -59,7 +58,7 @@
       (holding ?top)
       (goal_on ?top ?bottom)
       (clear ?bottom)
-      (not (should-move ?bottom)))
+      (done ?bottom))
     :effect (and
       (hand-empty)
       (not (holding ?top))
