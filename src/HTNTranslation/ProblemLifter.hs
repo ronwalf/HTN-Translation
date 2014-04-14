@@ -9,7 +9,7 @@
     TypeOperators,
     UndecidableInstances
     #-}
-module HTNTranslation.HTNProblemLift (
+module HTNTranslation.ProblemLifter (
   liftProblem
 ) where
 

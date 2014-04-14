@@ -27,7 +27,7 @@ import Text.ParserCombinators.Parsec.Token (parens)
 import Planning.PDDL.Parser (atomicParser)
 
 import HTNTranslation.HTNPDDL
-import HTNTranslation.HTNProblemLift
+import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
 import qualified HTNTranslation.CETranslation as CE
 import HTNTranslation.Typing

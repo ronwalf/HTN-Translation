@@ -1,4 +1,4 @@
-module HTNTranslation.Test where
+module HTNTranslation.TranslationTest where
 
 import Data.List
 import Prelude hiding (and, const, not, or)
