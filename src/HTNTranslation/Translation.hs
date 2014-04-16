@@ -493,7 +493,7 @@ translateCollapsed m = do
     useId <- getIdUse
     let (mid, Nothing, action) =
             constrainAction useId method n $
-            setName (getName m) $
+            setName ("htn_" ++ getName m) $
             setParameters (getParameters m) $
             setPrecondition (getPrecondition m) $
             setEffect (getEffect m) $
@@ -672,7 +672,7 @@ translateTask m n task = do
     useId <- getIdUse
     template <- getTemplate
     let
-        name = getName m ++ "_" ++ show n
+        name = "htn_" ++ getName m ++ "_" ++ show n
         (mid, tid, a) = constrainAction useId m n $
             setName name $
             setParameters (taskArgs task) $
@@ -751,7 +751,7 @@ translateMethod taskTransl m = do
                 : taskPs) 
             : getEffect m
     let action = 
-            setName (getName m) $
+            setName ("htn_" ++ getName m) $
             setParameters params $
             setPrecondition precond $
             setEffect effect $
@@ -769,7 +769,7 @@ translateMethod taskTransl m = do
     when (useMId && isNothing (findLastTask m)) $ do
         let n = lastN m
         let (mid, _, a) = constrainAction useId m n $
-                setName (getName m ++ '_' : show n) template
+                setName ("htn_" ++ getName m ++ '_' : show n) template
         let effect' =
                 ([], Nothing, [eNot $ runningIdP $ fromJust mid])
                 : getEffect a
@@ -805,7 +805,7 @@ translateHCMethod taskTransl m = do
     useId <- getIdUse
     template <- getTemplate
     let (mid, tid, a) = constrainAction useId m fn $
-            setName (getName m) $
+            setName ("htn_" ++ getName m) $
             setParameters (getParameters m) $
             setPrecondition (getPrecondition m) $
             setEffect (getEffect m) $
@@ -847,7 +847,7 @@ translateHCMethod taskTransl m = do
     when (isJust mid && isNothing (findLastTask m)) $ do
         let n = lastN m
         let (mid', _, a') = constrainAction useId m n $
-                setName (getName m ++ '_' : show n) template
+                setName ("htn_" ++ getName m ++ '_' : show n) template
         let effect' = conjunct $
                 eNot (runningIdP $ fromJust mid') 
                 : maybe [] conjuncts (getEffect a')

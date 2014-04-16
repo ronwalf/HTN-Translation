@@ -423,7 +423,7 @@ translateMethod m = do
             ++ (if (isJust lastTask) then [] else (cleanup tasks))
             ++ getEffect m
     let action = 
-            setName (getName m) $
+            setName ("htn_" ++ getName m) $
             setParameters params $
             setPrecondition precond $
             setEffect effect $
