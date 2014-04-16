@@ -138,9 +138,9 @@ processProblem opts useId domain fname = do
     numIds <- if (optNumIds opts > 0)
         then return 0
         else do
-            bounds <- boundProgression domain problem
+            bounds <- boundProgression domain lifted
             when (optVerbose opts) $ do
-                putStrLn $ "Problem " ++ getName problem ++ " task bounds: " ++ show bounds
+                putStrLn $ "Problem " ++ getName lifted ++ " task bounds: " ++ show bounds
             liftM (snd . head) $ boundProgression domain problem
     let problem' = if (optCE opts)
             then CE.translateProblem emptyProblem numIds lifted
