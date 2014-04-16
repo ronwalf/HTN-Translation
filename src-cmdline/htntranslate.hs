@@ -130,14 +130,21 @@ taskParser = parens pddlExprLexer $
     atomicParser pddlExprLexer $ constTermParser pddlExprLexer
 
 
-processProblem :: Options -> TaskIdUse -> String -> IO ()
-processProblem opts useId fname = do
+processProblem :: Options -> TaskIdUse -> StandardHTNDomain -> String -> IO ()
+processProblem opts useId domain fname = do
     contents <- readFile fname
     problem <- errCheck $ parseHTNProblem fname contents
     let lifted = maybe problem (flip liftProblem problem) $ optLift opts
+    numIds <- if (optNumIds opts > 0)
+        then return 0
+        else do
+            bounds <- boundProgression domain problem
+            when (optVerbose opts) $ do
+                putStrLn $ "Problem " ++ getName problem ++ " task bounds: " ++ show bounds
+            liftM (snd . head) $ boundProgression domain problem
     let problem' = if (optCE opts)
-            then CE.translateProblem emptyProblem (optNumIds opts) lifted
-                else translateProblem emptyProblem useId (optNumIds opts) lifted
+            then CE.translateProblem emptyProblem numIds lifted
+                else translateProblem emptyProblem useId numIds lifted
     saveFile opts fname $ show $ pddlDoc problem'
     return ()
 
@@ -170,5 +177,5 @@ main = do
                 else translateDomain emptyDomain defaultAction domain typemap idUse $
                     snd $ optTranslation opts
     saveFile opts domFile $ show $ pddlDoc tdomain
-    mapM_ (processProblem opts idUse) probFiles 
+    mapM_ (processProblem opts idUse domain) probFiles 
     return ()

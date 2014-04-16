@@ -13,12 +13,12 @@ Description:    HTNTranslation is a program for translating Hierarchical Task Ne
 
 source-repository head
     type:   git
-    location: git://github.com/ronwalf/HTNTranslation.git
+    location: git://github.com/ronwalf/HTN-Translation.git
     branch: master
 
 source-repository this
     type:   git
-    location: git://github.com/ronwalf/HTNTranslation.git
+    location: git://github.com/ronwalf/HTN-Translation.git
     tag: release-0.2
 
 
