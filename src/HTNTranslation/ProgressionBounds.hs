@@ -39,7 +39,7 @@ boundProgression ::
     ) => domain -> problem -> m [([String], Int)]
 boundProgression domain problem = do
     when (isNothing $ getTaskHead problem) $
-        fail $ getName problem ++ " has no initial task."
+        fail $ getName problem ++ " has no initial task; can't calculate identifier bound."
     noHeadlessMethodsCheck
     let cycles = taskCycles domain problem
     mapM_ tailRecursionCheck cycles
