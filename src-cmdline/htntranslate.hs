@@ -29,7 +29,7 @@ import Planning.PDDL.Parser (atomicParser)
 import HTNTranslation.HTNPDDL
 import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
-import qualified HTNTranslation.CETranslation as CE
+import qualified HTNTranslation.ADLTranslation as ATrans 
 import HTNTranslation.Typing
 import HTNTranslation.ProgressionBounds as PB
 
@@ -143,7 +143,7 @@ processProblem opts useId domain fname = do
                 putStrLn $ "Problem " ++ getName lifted ++ " task bounds: " ++ show bounds
             return $ snd $ head bounds
     let problem' = if (optCE opts)
-            then CE.translateProblem emptyProblem numIds lifted
+            then ATrans.translateProblem emptyProblem numIds lifted
                 else translateProblem emptyProblem useId numIds lifted
     saveFile opts fname $ show $ pddlDoc problem'
     return ()
@@ -173,7 +173,7 @@ main = do
         putStrLn "Task types:"
         mapM_ (\(t, tt) -> putStrLn $ t ++ ": " ++ show tt) $ Map.toList typemap 
     let tdomain = if (optCE opts) 
-            then CE.translateDomain emptyDomain defaultAction domain [CE.translateUncontrolled, CE.translateAction, CE.translateMethod]
+            then ATrans.translateDomain emptyDomain defaultAction domain [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
                 else translateDomain emptyDomain defaultAction domain typemap idUse $
                     snd $ optTranslation opts
     saveFile opts domFile $ show $ pddlDoc tdomain
