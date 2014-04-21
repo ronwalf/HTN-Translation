@@ -13,10 +13,7 @@
 module Main where
 
 import Control.Monad
-import Control.Monad.State
-import Data.List
-import qualified Data.Map as Map
-import Data.Maybe
+import Data.List (foldl')
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
@@ -30,41 +27,11 @@ import HTNTranslation.HTNPDDL
 import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
 import qualified HTNTranslation.ADLTranslation as ATrans 
-import HTNTranslation.Typing
 import HTNTranslation.ProgressionBounds as PB
 
-type TranslationDef = ([TaskIdUseFunc Maybe], [StandardMethod -> StateT (PDDLDomain, TranslationData StandardHTNDomain PDDLAction)  Maybe ()])
-
-basicTranslation :: TranslationDef
-basicTranslation = ([], [translateUncontrolled, translateAction, translateMethod [translateTask]])
-
-idTranslation :: TranslationDef
-idTranslation = 
-    (--[useAtomicId, usePLastId]
-     [useAtomicId]
-    ,[translateUncontrolled, translateAction, translateMethod [translateTask]])
-
-optimizedTranslation :: TranslationDef
-optimizedTranslation = 
-    (--[useAtomicId, usePLastId]
-     [useAtomicId]
-    ,[translateUncontrolled
-     , translateCollapsed
-     , translateAction
-     --, translateHCMethod [ignoreCollapsedTasks, translateTask]
-     , translateMethod [ignoreCollapsedTasks, translateTask]])
-
-translations :: [(String, TranslationDef)]
-translations =
-    [("basic", basicTranslation)
-    ,("id", idTranslation)
-    ,("opt", optimizedTranslation)
-    ]
-
 data Options = Options
-    { optCE :: Bool
+    { optADL :: Bool
     , optNumIds :: Int
-    , optTranslation :: TranslationDef
     , optLift :: Maybe (Expr (Atomic ConstTermExpr))
     , optPostfix :: String
     , optVerbose :: Bool
@@ -72,9 +39,8 @@ data Options = Options
 
 defaultOptions :: Options
 defaultOptions = Options
-    { optCE = True
+    { optADL = False
     , optNumIds = 0
-    , optTranslation = basicTranslation
     , optLift = Nothing
     , optPostfix = ".pddl"
     , optVerbose = False
@@ -95,14 +61,9 @@ options =
             return $ opts { optLift = Just task })
         "TASK")
         "lift standard PDDL problems into HTNPDDL"
-    , Option ['s'] ["strips"]
-        (NoArg (\opts -> return $ opts { optCE = False }))
-        "Use a roughly STRIPS-compatible translation (requires setting -i)"
-    , Option ['o'] ["opt"]
-        (OptArg (\ level opts -> return $ 
-            opts { optTranslation = maybe (snd $ last translations) (fromJust . flip lookup translations) level})
-         "LEVEL")
-        ("Optimization level (STRIPS translation only).  LEVEL=" ++ intercalate ", " (map fst translations))
+    , Option ['a'] ["adl"]
+        (NoArg (\opts -> return $ opts { optADL = True }))
+        "Use an ADL-compatible translation (used derived predicates)"
     , Option ['p'] ["postfix"]
         (ReqArg (\pfix opts -> return $ opts { optPostfix = pfix })
         "POSTFIX")
@@ -130,8 +91,8 @@ taskParser = parens pddlExprLexer $
     atomicParser pddlExprLexer $ constTermParser pddlExprLexer
 
 
-processProblem :: Options -> TaskIdUse -> StandardHTNDomain -> String -> IO ()
-processProblem opts useId domain fname = do
+processProblem :: Options -> StandardHTNDomain -> String -> IO Int
+processProblem opts domain fname = do
     contents <- readFile fname
     problem <- errCheck $ parseHTNProblem fname contents
     let lifted = maybe problem (flip liftProblem problem) $ optLift opts
@@ -142,11 +103,11 @@ processProblem opts useId domain fname = do
             when (optVerbose opts) $ do
                 putStrLn $ "Problem " ++ getName lifted ++ " task bounds: " ++ show bounds
             return $ snd $ head bounds
-    let problem' = if (optCE opts)
+    let problem' = if (optADL opts)
             then ATrans.translateProblem emptyProblem numIds lifted
-                else translateProblem emptyProblem useId numIds lifted
+                else translateProblem emptyProblem numIds lifted
     saveFile opts fname $ show $ pddlDoc problem'
-    return ()
+    return numIds
 
 main :: IO ()
 main = do
@@ -160,22 +121,28 @@ main = do
             concat errs 
             ++ usageInfo "Usage: htntranslate [OPTION...] domain files..." options
     domContents <- readFile domFile
-    domain <- errCheck $ parseHTNPDDL domFile domContents
+    domain <-  (errCheck $ parseHTNPDDL domFile domContents) >>= tailRec opts
     when (optVerbose opts) $ do
         putStrLn "Parsed domain:"
         putStrLn $ show domain
         putStrLn ""
-    let typemap = findTypes 
-            [callSpotTyper, callCountTyper, lastPositionTyper, primitiveTyper, parentPositionTyper]
-            domain
-    let idUse = flip taskIdUse typemap $ fst $ optTranslation opts
-    when (optVerbose opts) $ do
-        putStrLn "Task types:"
-        mapM_ (\(t, tt) -> putStrLn $ t ++ ": " ++ show tt) $ Map.toList typemap 
-    let tdomain = if (optCE opts) 
-            then ATrans.translateDomain emptyDomain defaultAction domain [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
-                else translateDomain emptyDomain defaultAction domain typemap idUse $
-                    snd $ optTranslation opts
+    numIds <- liftM (maximum . (1:)) $ mapM (processProblem opts domain) probFiles 
+    let tdomain = if (optADL opts) 
+            then ATrans.translateDomain emptyDomain defaultAction domain 
+                [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
+            else translateDomain emptyDomain defaultAction domain numIds
+                [translateUncontrolled, translateAction, translateMethod]
     saveFile opts domFile $ show $ pddlDoc tdomain
-    mapM_ (processProblem opts idUse domain) probFiles 
     return ()
+    where
+    tailRec :: Options -> StandardHTNDomain -> IO StandardHTNDomain
+    tailRec opts domain =
+        let tasks = filter (taskHasLooseEnds domain) $ tasksWithSuccessors domain in
+        if (optADL opts || null tasks)
+            then return domain
+            else do
+                when (optVerbose opts) $ do
+                    putStrLn $ "Adding dummy last task for these tasks: " ++ show tasks
+                let (dtask, dom') = insertDummy defaultMethod domain
+                return $ foldl' (\dom task -> ensureLastTask dom dtask task) dom' tasks
+        
