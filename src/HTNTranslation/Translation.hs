@@ -448,12 +448,14 @@ translateMethod m numIds = do
     let task = fromJust $ getTaskHead m 
     let lastTask = findLastTask m 
     when (isNothing lastTask) $ fail $ "Method " ++ getName m ++ " has no last task (can't use SRIPS translation)"
-    let tasks = taskNums lastTask $ enumerateTasks m
+    let tasks = taskNums lastTask $ reverse $ enumerateTasks m
     let hid = htnIdV 1
     let alloc = 
-            take (length tasks) $
             (nextIdP (htnIdC 0) (htnIdV 2 :: TermExpr))
-            : [nextIdP (htnIdV n :: TermExpr) (htnIdV $ n + 1) | n <- [2..]]
+            : concat [
+                [ freeP (htnIdV n :: TermExpr)
+                , nextIdP (htnIdV n :: TermExpr) (htnIdV $ n + 1) 
+                ] | n <- [2 .. length tasks]]
     let params = getParameters m ++ map htnIdP [1 .. length tasks + 1]
     let precond = 
              (Nothing, conjunct $ 

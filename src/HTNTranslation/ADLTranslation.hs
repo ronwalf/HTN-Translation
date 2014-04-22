@@ -400,7 +400,7 @@ translateMethod m = do
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m 
     let lastTask = findLastTask m 
-    let tasks = taskNums lastTask $ enumerateTasks m
+    let tasks = taskNums lastTask $ reverse $ enumerateTasks m
     let hid = htnIdV 1
     let alloc = zip (repeat Nothing) $
             take (length tasks - 1) $
