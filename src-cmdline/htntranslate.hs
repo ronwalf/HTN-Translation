@@ -97,7 +97,7 @@ processProblem opts domain fname = do
     problem <- errCheck $ parseHTNProblem fname contents
     let lifted = maybe problem (flip liftProblem problem) $ optLift opts
     numIds <- if (optNumIds opts > 0)
-        then return 0
+        then return (optNumIds opts)
         else do
             bounds <- boundProgression domain lifted
             when (optVerbose opts) $ do
