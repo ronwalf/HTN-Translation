@@ -213,7 +213,8 @@ translateProblem :: forall template problem g c f .
     HasGoal (Expr g) template, HasGoal (Expr g) problem, 
     PDDLAtom :<: g, And :<: g, Not :<: g, Conjuncts g g,
     HasConstraints c template, HasConstraints c problem,
-    HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem,
+    HasTaskLists ConstTermExpr problem,
+    HasTaskConstraints problem,
     HasInitial (Expr f) template, HasInitial (Expr f) problem,
     Atomic ConstTermExpr :<: f)
     => template -> Int -> problem -> template
@@ -223,7 +224,7 @@ translateProblem template numIds problem =
     setRequirements (getRequirements problem) $
     setGoal (Just goal) $
     setConstraints (getConstraints problem) $
-    idInits (getTaskHead problem) $
+    idInits (enumerateTasks problem) $
     setConstants (getConstants problem) $
     setInitial (getInitial problem) $
     template
@@ -233,16 +234,18 @@ translateProblem template numIds problem =
         getGoal problem
     htnStopped :: Expr g
     htnStopped = finishedP (htnIdC 1 :: TermExpr)
-    idInits :: Maybe (Expr (Atomic ConstTermExpr)) -> template -> template
-    idInits Nothing p =
+    idInits :: [(Int, Expr (Atomic ConstTermExpr))] -> template -> template
+    idInits [] p =
         setConstants (getConstants p ++ constants numIds) $
         setInitial (getInitial p ++ idList [1..numIds]) $
         p
-    idInits (Just t) p =
+    idInits tl p =
         setConstants (getConstants p ++ constants (max 1 numIds)) $
         setInitial (getInitial p 
-            ++ [ taskP (taskName t) (taskArgs t) (htnIdC 1) 
-               , usedIdP (htnIdC 1 :: ConstTermExpr)]
+            ++ concat [ 
+               [ taskP (taskName t) (taskArgs t) (htnIdC n) 
+               , usedIdP (htnIdC n :: ConstTermExpr)
+               ] | (n, (_, t)) <- zip [1..] tl ]
             ++ idList [1..numIds]) $
         p
     constants :: Int -> [TypedConstExpr]
@@ -310,7 +313,7 @@ translateUncontrolled :: forall m dom sdom template action param pre eff.
      HasPrecondition (Maybe String, Expr pre) template,
      HasEffect eff action, HasEffect eff template,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action)
+     HasTaskLists TermExpr action)
     => action -> m ()
 translateUncontrolled m = do
     guard $ isNothing $ getTaskHead m 
@@ -340,7 +343,7 @@ translateAction :: forall m dom sdom template action pre eff.
      HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action,
+     HasTaskLists TermExpr action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
@@ -348,6 +351,9 @@ translateAction :: forall m dom sdom template action pre eff.
 translateAction m = do
     guard $ isJust $ getTaskHead m
     guard $ null $ getTaskLists m
+    let name = if null $ getEffect m
+            then "htn_" ++ getName m
+            else getName m
     template <- getTemplate
     let task = fromJust $ getTaskHead m 
     let hid = htnIdV 1
@@ -366,7 +372,7 @@ translateAction m = do
             ]
             ++ getEffect m
     let action = 
-            setName (getName m) $
+            setName name $
             setParameters params $
             setPrecondition precond $
             setEffect effect $
@@ -387,7 +393,7 @@ translateMethod :: forall m dom sdom template action pre eff.
      HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action,
+     HasTaskLists TermExpr action,
      HasTaskConstraints action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom

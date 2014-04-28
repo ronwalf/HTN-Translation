@@ -25,25 +25,25 @@ import HTNTranslation.HTNPDDL
 
 -- |For mostly tail recursive HTN domains, 'boundProgression' calculates an
 -- upper bound on the size of the task network reachable via progression.
--- Returns list of bounds for sets of multually-recursive tasks in topological order.
--- First entry will contain the problem's initial task (and subsequent bound)
+-- Returns the problem bound and a list of bounds for sets of 
+-- multually-recursive tasks in topological order.
 boundProgression :: 
     ( Monad m
     , HasName action
     , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists action
+    , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
     , HasName problem
-    , HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem
-    ) => domain -> problem -> m [([String], Int)]
+    , HasTaskLists ConstTermExpr problem
+    , HasTaskConstraints problem
+    ) => domain -> problem -> m (Int, [([String], Int)])
 boundProgression domain problem = do
-    when (isNothing $ getTaskHead problem) $
-        fail $ getName problem ++ " has no initial task; can't calculate identifier bound."
     noHeadlessMethodsCheck
     let cycles = taskCycles domain problem
     mapM_ tailRecursionCheck cycles
-    return $ progressionBound domain cycles 
+    let bounds = progressionBound domain cycles 
+    return (boundsGame problem bounds, bounds)
     where
     noHeadlessMethodsCheck = flip mapM_ (getActions domain) $ \a -> 
         when ((isNothing $ getTaskHead a) && (not $ null $ getTaskLists a)) $
@@ -57,11 +57,13 @@ boundProgression domain problem = do
             (filter (not . (== findLastTask action) . Just) $ 
             enumerateTasks action) $ 
         \(_, ts) -> when (taskName ts `elem` cyclic) $ fail $ getName action ++ " has non-tail recursion through task " ++ (taskName ts)
+
+
 -- |Bound progression for a list of task cycles
 progressionBound ::
     ( HasName action
     , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists action
+    , HasTaskLists a action
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> [[String]] -> [([String], Int)]
@@ -77,9 +79,9 @@ progressionBound domain = foldr boundSet []
 -- |Play the bounds game for a method, returning the max bound given already known bounds.
 -- Assumes unknown bounds are '1', since they should reflect tasks that are mutually recursive
 -- with this method's task head.
-boundsGame :: forall action .
+boundsGame :: forall a action .
     ( HasName action
-    , HasTaskLists action
+    , HasTaskLists a action
     , HasTaskConstraints action
     ) => action -> [([String], Int)] -> Int
 boundsGame action bounds =
@@ -124,12 +126,12 @@ boundsGame action bounds =
     bg tn = weight tn : concatMap bg (children tn)
 
 -- |Find all task cycles in a domain (topological ordering)
-taskCycles :: forall action domain problem .
+taskCycles :: forall a action domain problem .
     ( HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists action
+    , HasTaskLists a action
     , HasTaskConstraints action
     , HasActions action domain
-    , HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem
+    , HasTaskLists ConstTermExpr problem
     ) => domain -> problem -> [[String]]
 taskCycles domain problem =
     reverse $
@@ -148,15 +150,17 @@ taskCycles domain problem =
     
 
 -- |Find all reachable tasks for a given domain-problem pair
-findReachableTasks :: forall action domain problem . 
+findReachableTasks :: forall a action domain problem . 
     ( HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists action
+    , HasTaskLists a action
     , HasTaskConstraints action
     , HasActions action domain
-    , HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem
+    , HasTaskLists ConstTermExpr problem
     ) => domain -> problem -> [String]
 findReachableTasks domain problem =
-    maybe [] (frt [] . taskName) (getTaskHead problem)
+    foldl' frt [] $
+    map (taskName . snd) $ 
+    enumerateTasks problem
     where
     frt :: [String] -> String -> [String]
     frt explored task
@@ -167,9 +171,9 @@ findReachableTasks domain problem =
                 findMethods domain task
 
 -- |Find all methods for a given task name (should probably refactor into utils)
-findMethods :: forall action domain . 
+findMethods :: forall a action domain . 
     ( HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists action
+    , HasTaskLists a action
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> String -> [action]

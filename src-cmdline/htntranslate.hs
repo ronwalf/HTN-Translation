@@ -99,10 +99,11 @@ processProblem opts domain fname = do
     numIds <- if (optNumIds opts > 0)
         then return (optNumIds opts)
         else do
-            bounds <- boundProgression domain lifted
+            (bound, bounds) <- boundProgression domain lifted
             when (optVerbose opts) $ do
-                putStrLn $ "Problem " ++ getName lifted ++ " task bounds: " ++ show bounds
-            return $ snd $ head bounds
+                putStrLn $ "Problem " ++ getName lifted ++ 
+                    " bound " ++ show bound ++ ", tasks: " ++ show bounds
+            return bound 
     let problem' = if (optADL opts)
             then ATrans.translateProblem emptyProblem numIds lifted
                 else translateProblem emptyProblem numIds lifted
@@ -128,10 +129,12 @@ main = do
         putStrLn ""
     numIds <- liftM (maximum . (1:)) $ mapM (processProblem opts domain) probFiles 
     let tdomain = if (optADL opts) 
+            --then ATrans.translateDomain emptyDomain defaultAction domain 
+            --    [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
             then ATrans.translateDomain emptyDomain defaultAction domain 
                 [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
             else translateDomain emptyDomain defaultAction domain numIds
-                [translateUncontrolled, translateAction, translateMethod]
+                [translateUncontrolled, translateAction, translateMethod1, translateMethod]
     saveFile opts domFile $ show $ pddlDoc tdomain
     return ()
     where

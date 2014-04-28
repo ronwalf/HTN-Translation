@@ -165,7 +165,8 @@ translateProblem :: forall template problem g c f .
     HasGoal (Expr g) template, HasGoal (Expr g) problem, 
     PDDLAtom :<: g, And :<: g, Not :<: g, Conjuncts g g,
     HasConstraints c template, HasConstraints c problem,
-    HasTaskHead (Maybe (Expr (Atomic ConstTermExpr))) problem,
+    HasTaskLists ConstTermExpr problem,
+    HasTaskConstraints problem,
     HasInitial (Expr f) template, HasInitial (Expr f) problem,
     Atomic ConstTermExpr :<: f)
     => template -> Int -> problem -> template
@@ -175,7 +176,7 @@ translateProblem template numIds problem =
     setRequirements (getRequirements problem) $
     setGoal (Just goal) $
     setConstraints (getConstraints problem) $
-    idInits (getTaskHead problem) $
+    idInits (enumerateTasks problem) $
     setConstants (getConstants problem) $
     setInitial (getInitial problem) $
     template
@@ -189,16 +190,25 @@ translateProblem template numIds problem =
     allIds = (htnIdC 0 :: Expr e) : useableIds
     htnStopped :: Expr g
     htnStopped = conjunct $ map freeP (useableIds :: [TermExpr])
-    idInits :: Maybe (Expr (Atomic ConstTermExpr)) -> template -> template
-    idInits Nothing p =
+    idInits :: [(Int, Expr (Atomic ConstTermExpr))] -> template -> template
+    idInits [] p =
         setInitial (getInitial p ++ freeList (allIds ++ [head allIds]) ++ idOrder ++ 
             [permitsP (c1 :: ConstTermExpr) c2 | c1 <- useableIds, c2 <- useableIds]) p
-    idInits (Just t) p =
+    idInits tl p =
+        let 
+            idtl = zip useableIds tl
+            constrainedIds = [ (c1, c2) 
+                | (c1, t1) <- idtl
+                , (c2, t2) <- idtl
+                , t2 `elem` findNextTasks problem (fst t1) ]
+        in
         setInitial (getInitial p 
-            ++ [ taskP (taskName t) (taskArgs t) (head useableIds) ]
-            ++ map freeP (tail useableIds :: [ConstTermExpr])
-            ++ freeList (head allIds : tail useableIds ++ [head allIds])
-            ++ [permitsP (c1 :: ConstTermExpr) c2 | c1 <- useableIds, c2 <- useableIds]
+            ++ [ taskP (taskName t) (taskArgs t) hid 
+               | (hid, (_, t)) <- idtl ]
+            ++ map freeP (drop (length tl) useableIds :: [ConstTermExpr])
+            ++ freeList (head allIds : drop (length tl) useableIds ++ [head allIds])
+            ++ [permitsP (c1 :: ConstTermExpr) c2 | c1 <- useableIds, c2 <- useableIds, 
+                (c1, c2) `notElem` constrainedIds]
             ++ idOrder) $
         p
     freeList :: [ConstTermExpr] -> [Expr f]
@@ -249,7 +259,7 @@ translateDomain domTemplate actionTemplate dom numIds transl =
 tasksWithSuccessors :: forall action domain .
     ( HasName action
     , HasTaskHead (Maybe (Expr (Atomic TermExpr))) action
-    , HasTaskLists action
+    , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> [String]
@@ -264,7 +274,7 @@ tasksWithSuccessors domain =
 taskHasLooseEnds :: forall action domain .
     ( HasName action
     , HasTaskHead (Maybe (Expr (Atomic TermExpr))) action
-    , HasTaskLists action
+    , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> String -> Bool
@@ -279,7 +289,7 @@ taskHasLooseEnds domain task =
 insertDummy :: forall action domain .
     ( HasName action
     , HasTaskHead StdTaskHead action
-    , HasTaskLists action
+    , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
     , HasTaskHead [StdTaskDef] domain
@@ -299,7 +309,7 @@ insertDummy template domain =
 ensureLastTask :: forall action domain .
     ( HasName action
     , HasTaskHead (Maybe (Expr (Atomic TermExpr))) action
-    , HasTaskLists action
+    , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> Expr PDDLAtom -> String -> domain
@@ -314,7 +324,7 @@ ensureLastTask domain dtask taskname =
         | otherwise = m
     tlast = "htn_last"
     namedTaskLists m = zipWith addName [1..] (getTaskLists m)
-    addName :: Int -> TaskList -> TaskList
+    addName :: Int -> TaskList TermExpr -> TaskList TermExpr
     addName _ tl@(Just _, _) = tl
     addName i (Nothing, tl) = (Just $ "htn_" ++ show i, tl)
     addDummy m =
@@ -346,7 +356,7 @@ translateUncontrolled :: forall m dom sdom template action param pre eff.
      HasPrecondition (Maybe String, Expr pre) template,
      HasEffect eff action, HasEffect eff template,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action)
+     HasTaskLists TermExpr action)
     => action -> Int -> m ()
 translateUncontrolled m _ = do
     guard $ isNothing $ getTaskHead m 
@@ -376,7 +386,7 @@ translateAction :: forall m dom sdom template action pre eff.
      HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action,
+     HasTaskLists TermExpr action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
@@ -385,6 +395,9 @@ translateAction m numIds = do
     guard $ isJust $ getTaskHead m
     guard $ null $ getTaskLists m
     template <- getTemplate
+    let name = if null $ getEffect m
+            then "htn_" ++ getName m -- Probably was an empty method
+            else getName m
     let task = fromJust $ getTaskHead m 
     let hid = htnIdV 1
     let hidp = htnIdV 2
@@ -412,11 +425,60 @@ translateAction m numIds = do
             ]
             ++ getEffect m
     let action = 
-            setName (getName m) $
+            setName name $
             setParameters params $
             setPrecondition precond $
             setEffect effect $
             template
+    addAction action
+    return ()
+
+
+translateMethod1 :: forall m dom sdom template action pre eff.
+    (MonadState (dom, TranslationData sdom template) m, MonadPlus m,
+     HasPredicates (Expr (Atomic TypedVarExpr)) dom,
+     HasName action, HasName template,
+     HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
+     HasPrecondition (Maybe String, Expr pre) action, 
+     HasPrecondition (Maybe String, Expr pre) template,
+     Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
+     And :<: pre, Conjuncts pre pre, ForAll TypedVarExpr :<: pre,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, 
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
+     Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
+     HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
+     HasTaskLists TermExpr action,
+     HasTaskConstraints action,
+     HasActions template dom,
+     HasTaskHead [StdTaskDef] sdom
+     )
+    => action -> Int -> m ()
+translateMethod1 m numIds = do
+    guard $ isJust $ getTaskHead m
+    guard $ 1 == length (enumerateTasks m)
+    template <- getTemplate
+    sdom <- getSDomain
+    let task = fromJust $ getTaskHead m 
+    let lastTask = snd $ fromJust $ findLastTask m 
+    let hid = htnIdV 1
+    let params = getParameters m ++ [htnIdP 1]
+    let precond = 
+             (Nothing, conjunct $ 
+                [ taskP (taskName task) (taskArgs task) hid] 
+                ++ allPermitP (map htnIdC [1..numIds]) hid)
+             : getPrecondition m
+    let effect = 
+            ([], Nothing, 
+                [ eNot $ taskP (taskName task) (taskArgs task) hid
+                , taskP (taskName lastTask) (taskArgs lastTask) hid ])
+            : getEffect m
+    let action = 
+            setName ("htn_" ++ getName m) $
+            setParameters params $
+            setPrecondition precond $
+            setEffect effect $
+            template
+    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
     addAction action
     return ()
 
@@ -434,7 +496,7 @@ translateMethod :: forall m dom sdom template action pre eff.
      HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists action,
+     HasTaskLists TermExpr action,
      HasTaskConstraints action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom

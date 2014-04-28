@@ -106,13 +106,13 @@ constAtomic constTemplate (In (Atomic p tl)) =
 
 --liftProblem ::
 --    template -> problem -> task -> template
-liftProblem :: (HasTaskHead (Maybe task) problem,
+liftProblem :: (HasTaskLists a problem,
     HasInitial (Expr s) problem,
     HasGoal (Expr g) problem,
     Atomic ConstTermExpr :<: s,
     AtomicFinder (Expr PDDLAtom) g,
     AtomicRenamer g g
-    ) => task -> problem -> problem
+    ) => Expr (Atomic a) -> problem -> problem
     
 liftProblem task problem =
     
@@ -125,6 +125,6 @@ liftProblem task problem =
             ++ mapMaybe (constAtomic (undefined :: ConstTermExpr)) atomicGoals
     in
     setInitial initGoals $
-    setTaskHead (Just task) $
+    setTaskLists [(Nothing, [task])] $
     problem 
 

@@ -5,7 +5,7 @@
   banjo - OBJ viola - OBJ apple - OBJ)
  (:init
   (have banjo))
- (:task (swap apple banjo))
+ (:tasks ((swap apple banjo)))
  (:goal (and
   (have apple)
   )))

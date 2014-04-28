@@ -26,7 +26,7 @@
       (on-table ?b) (clear ?b)))
 
   (:action stack
-    :parameters (?bottom - BLOCK ?top - BLOCK)
+    :parameters (?top - BLOCK ?bottom - BLOCK)
     :precondition (and
       (holding ?top)
       (clear ?bottom))
@@ -38,7 +38,7 @@
       (clear ?top)))
 
   (:action unstack
-    :parameters (?bottom - BLOCK ?top - BLOCK)
+    :parameters (?top - BLOCK ?bottom - BLOCK)
     :precondition (and
       (hand-empty)
       (clear ?top)
