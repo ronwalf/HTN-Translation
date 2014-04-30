@@ -1,5 +1,5 @@
 Name:	    htn-translation	
-Version:	0.2
+Version:	0.2.1
 Cabal-Version:  >= 1.8
 Build-Type:     Simple
 License:	BSD3
@@ -32,7 +32,13 @@ Library
         mtl >= 1,
         syb >= 0.1,
         planning >= 0.2 
-  Exposed-modules:HTNTranslation.HTNPDDL, HTNTranslation.ADLTranslation, HTNTranslation.Translation, HTNTranslation.ProblemLifter, HTNTranslation.ProgressionBounds
+  Exposed-modules:
+        HTNTranslation.HTNPDDL, 
+        HTNTranslation.ADLTranslation, 
+        HTNTranslation.Translation, 
+        HTNTranslation.TOTranslation, 
+        HTNTranslation.ProblemLifter, 
+        HTNTranslation.ProgressionBounds
   Hs-Source-Dirs: src
   GHC-Options: -Wall
 

@@ -27,10 +27,13 @@ import HTNTranslation.HTNPDDL
 import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
 import qualified HTNTranslation.ADLTranslation as ATrans 
+import qualified HTNTranslation.TOTranslation as TOTrans
 import HTNTranslation.ProgressionBounds as PB
 
+data TranslationType = ADLTranslation | TOTranslation | STRIPSTranslation
+
 data Options = Options
-    { optADL :: Bool
+    { optTrans :: TranslationType
     , optNumIds :: Int
     , optLift :: Maybe (Expr (Atomic ConstTermExpr))
     , optPostfix :: String
@@ -39,7 +42,7 @@ data Options = Options
 
 defaultOptions :: Options
 defaultOptions = Options
-    { optADL = False
+    { optTrans = STRIPSTranslation
     , optNumIds = 0
     , optLift = Nothing
     , optPostfix = ".pddl"
@@ -62,8 +65,11 @@ options =
         "TASK")
         "lift standard PDDL problems into HTNPDDL"
     , Option ['a'] ["adl"]
-        (NoArg (\opts -> return $ opts { optADL = True }))
-        "Use an ADL-compatible translation (used derived predicates)"
+        (NoArg (\opts -> return $ opts { optTrans = ADLTranslation }))
+        "Use an ADL-compatible translation (use derived predicates)"
+    , Option ['o'] ["ordered"]
+        (NoArg (\opts -> return $ opts { optTrans = TOTranslation }))
+        "Use a STRIPS translation for totally-ordered problems (IJCAI09 paper)"
     , Option ['p'] ["postfix"]
         (ReqArg (\pfix opts -> return $ opts { optPostfix = pfix })
         "POSTFIX")
@@ -104,9 +110,10 @@ processProblem opts domain fname = do
                 putStrLn $ "Problem " ++ getName lifted ++ 
                     " bound " ++ show bound ++ ", tasks: " ++ show bounds
             return bound 
-    let problem' = if (optADL opts)
-            then ATrans.translateProblem emptyProblem numIds lifted
-                else translateProblem emptyProblem numIds lifted
+    let problem' = case optTrans opts of
+            TOTranslation -> TOTrans.translateProblem emptyProblem numIds lifted
+            ADLTranslation -> ATrans.translateProblem emptyProblem numIds lifted
+            STRIPSTranslation -> translateProblem emptyProblem numIds lifted
     saveFile opts fname $ show $ pddlDoc problem'
     return numIds
 
@@ -128,24 +135,23 @@ main = do
         putStrLn $ show domain
         putStrLn ""
     numIds <- liftM (maximum . (1:)) $ mapM (processProblem opts domain) probFiles 
-    let tdomain = if (optADL opts) 
-            --then ATrans.translateDomain emptyDomain defaultAction domain 
-            --    [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
-            then ATrans.translateDomain emptyDomain defaultAction domain 
-                [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
-            else translateDomain emptyDomain defaultAction domain numIds
-                [translateUncontrolled, translateAction, translateMethod1, translateMethod]
+    let tdomain = case optTrans opts of
+            TOTranslation -> TOTrans.translateDomain emptyDomain defaultAction domain
+                [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans.translateMethod]
+            ADLTranslation -> ATrans.translateDomain emptyDomain defaultAction domain 
+                    [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
+            STRIPSTranslation -> translateDomain emptyDomain defaultAction domain numIds
+                    [translateUncontrolled, translateAction, translateMethod1, translateMethod]
     saveFile opts domFile $ show $ pddlDoc tdomain
     return ()
     where
     tailRec :: Options -> StandardHTNDomain -> IO StandardHTNDomain
     tailRec opts domain =
         let tasks = filter (taskHasLooseEnds domain) $ tasksWithSuccessors domain in
-        if (optADL opts || null tasks)
-            then return domain
-            else do
-                when (optVerbose opts) $ do
-                    putStrLn $ "Adding dummy last task for these tasks: " ++ show tasks
-                let (dtask, dom') = insertDummy defaultMethod domain
-                return $ foldl' (\dom task -> ensureLastTask dom dtask task) dom' tasks
-        
+        case (optTrans opts, null tasks) of
+        (STRIPSTranslation, False) -> do
+            when (optVerbose opts) $ do
+                putStrLn $ "Adding dummy last task for these tasks: " ++ show tasks
+            let (dtask, dom') = insertDummy defaultMethod domain
+            return $ foldl' (\dom task -> ensureLastTask dom dtask task) dom' tasks
+        _ -> return domain
