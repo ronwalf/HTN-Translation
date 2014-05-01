@@ -13,6 +13,7 @@
 module Main where
 
 import Control.Monad
+import Data.Char (toLower)
 import Data.List (foldl')
 import System.Console.GetOpt
 import System.Environment
@@ -35,7 +36,7 @@ data TranslationType = ADLTranslation | TOTranslation | STRIPSTranslation
 data Options = Options
     { optTrans :: TranslationType
     , optNumIds :: Int
-    , optLift :: Maybe (Expr (Atomic ConstTermExpr))
+    , optLift :: [Expr (Atomic ConstTermExpr)]
     , optPostfix :: String
     , optVerbose :: Bool
     }
@@ -44,14 +45,23 @@ defaultOptions :: Options
 defaultOptions = Options
     { optTrans = STRIPSTranslation
     , optNumIds = 0
-    , optLift = Nothing
+    , optLift = [] 
     , optPostfix = ".pddl"
     , optVerbose = False
     }
 
 options :: [OptDescr (Options -> IO Options)]
 options = 
-    [ Option ['i']  ["identifiers"]
+    [ Option ['t'] ["type"]
+        (ReqArg (\t opts -> liftM (\x -> opts { optTrans = x }) $
+            case map toLower t of
+                "adl" -> return ADLTranslation
+                "strips" -> return STRIPSTranslation
+                "ordered" -> return TOTranslation
+                _ -> fail $ "Unknown translation type '" ++ t ++ "'")
+            "TYPE")
+        "Set the translation type (adl|strips|ordered)"
+    , Option ['i']  ["identifiers"]
         (ReqArg (\n opts -> do
             case (reads n) of
                 [(ids, "")] -> return $ opts { optNumIds = ids}
@@ -61,15 +71,9 @@ options =
     , Option ['l'] ["lift"]
         (ReqArg (\taskstr opts -> do
             task <- errCheck $ runParser taskParser () taskstr taskstr
-            return $ opts { optLift = Just task })
+            return $ opts { optLift = task : optLift opts })
         "TASK")
         "lift standard PDDL problems into HTNPDDL"
-    , Option ['a'] ["adl"]
-        (NoArg (\opts -> return $ opts { optTrans = ADLTranslation }))
-        "Use an ADL-compatible translation (use derived predicates)"
-    , Option ['o'] ["ordered"]
-        (NoArg (\opts -> return $ opts { optTrans = TOTranslation }))
-        "Use a STRIPS translation for totally-ordered problems (IJCAI09 paper)"
     , Option ['p'] ["postfix"]
         (ReqArg (\pfix opts -> return $ opts { optPostfix = pfix })
         "POSTFIX")
@@ -101,7 +105,9 @@ processProblem :: Options -> StandardHTNDomain -> String -> IO Int
 processProblem opts domain fname = do
     contents <- readFile fname
     problem <- errCheck $ parseHTNProblem fname contents
-    let lifted = maybe problem (flip liftProblem problem) $ optLift opts
+    let lifted = case optLift opts of
+            [] -> problem
+            tasks -> liftProblem tasks problem
     numIds <- if (optNumIds opts > 0)
         then return (optNumIds opts)
         else do

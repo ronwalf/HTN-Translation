@@ -112,9 +112,9 @@ liftProblem :: (HasTaskLists a problem,
     Atomic ConstTermExpr :<: s,
     AtomicFinder (Expr PDDLAtom) g,
     AtomicRenamer g g
-    ) => Expr (Atomic a) -> problem -> problem
+    ) => [Expr (Atomic a)] -> problem -> problem
     
-liftProblem task problem =
+liftProblem tasks problem =
     
     let 
         atomicGoals =
@@ -125,6 +125,6 @@ liftProblem task problem =
             ++ mapMaybe (constAtomic (undefined :: ConstTermExpr)) atomicGoals
     in
     setInitial initGoals $
-    setTaskLists [(Nothing, [task])] $
+    setTaskLists (flip map tasks $ \t -> (Nothing, [t])) $
     problem 
 
