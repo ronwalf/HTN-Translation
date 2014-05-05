@@ -14,36 +14,36 @@
   (:tasks
     (achieve-goals)
     (release)
-    (pickup ?b - BLOCK)
     (putdown ?b - BLOCK)
     (stack ?b ?d - BLOCK)
-    (unstack ?b ?d - BLOCK))
+    (acquire ?b - BLOCK))
 
   (:method mark-done-table
     :task (achieve-goals)
     :parameters (?b - BLOCK)
     :precondition (and (goal_on-table ?b) (on-table ?b))
-    :effect (and (not (goal_on-table ?b)) (done ?b))
+    :effect (done ?b)
     :tasks ((achieve-goals)))
 
   (:method mark-done-on
     :task (achieve-goals)
     :parameters (?b ?d - BLOCK)
-    :precondition (and (goal_on ?b ?d) (clear ?d) (done ?d))
-    :effect (and (not (goal_on ?b ?d)) (done ?b))
+    :precondition (and (goal_on ?b ?d) (on ?b ?d) (done ?d))
+    :effect (done ?b)
     :tasks ((achieve-goals)))
 
   (:method pickup-ready-block
     :task (achieve-goals)
-    :parameters (?b ?d - BLOCK)
-    :precondition (and (clear ?b) (on-table ?b) (goal_on ?b ?d) (done ?d) (clear ?d))
-    :tasks ((pickup ?b) (release)))
+    :parameters (?b - BLOCK)
+    :precondition (and (clear ?b) (not (done ?b)) 
+        (exists (?d - BLOCK) (and (goal_on ?b ?d) (done ?d) (clear ?d))))
+    :tasks ((acquire ?b) (release)))
 
   (:method unstack-block
     :task (achieve-goals)
-    :parameters (?b ?d - BLOCK)
-    :precondition (and (clear ?b) (on ?b ?d))
-    :tasks ((unstack ?b ?d) (release)))
+    :parameters (?b - BLOCK)
+    :precondition (and (clear ?b) (not (done ?b)) (not (goal_on-table ?b)) (exists (?d - BLOCK) (on ?b ?d)))
+    :tasks ((acquire ?b) (release)))
 
   (:method release-stack
     :task (release)
@@ -56,21 +56,22 @@
     :task (release)
     :parameters (?b - BLOCK)
     :precondition (and (holding ?b) (goal_on-table ?b))
-    :effect (and (not (goal_on-table ?b)) (done ?b))
+    :effect (done ?b)
     :tasks ((putdown ?b) (achieve-goals)))
 
   (:method release-table
     :task (release)
     :parameters (?b - BLOCK)
-    :precondition (holding ?b)
+    :precondition (and (holding ?b) (not (goal_on-table ?b)))
     :tasks ((putdown ?b) (achieve-goals)))
  
   (:method done
-    :task (achieve-goals))
+    :task (achieve-goals)
+    :precondition (forall (?b - BLOCK) (done ?b)))
    
   (:action pickup
     :parameters (?b - BLOCK)
-    :task (pickup ?b)
+    :task (acquire ?b)
     :precondition (and (hand-empty) (clear ?b) (on-table ?b))
     :effect (and
       (not (hand-empty))
@@ -102,7 +103,7 @@
 
   (:action unstack
     :parameters (?top - BLOCK ?bottom - BLOCK)
-    :task (unstack ?top ?bottom)
+    :task (acquire ?top)
     :precondition (and
       (hand-empty)
       (clear ?top)

@@ -14,36 +14,36 @@
   (:tasks
     (achieve-goals ?a - ARM)
     (release ?a - ARM)
-    (pickup ?b - BLOCK ?a - ARM)
     (putdown ?b - BLOCK)
     (stack ?b ?d - BLOCK)
-    (unstack ?b ?d - BLOCK ?a - ARM))
+    (acquire ?b - BLOCK ?a - ARM))
 
   (:method mark-done-table
     :task (achieve-goals ?a)
     :parameters (?b - BLOCK ?a - ARM)
     :precondition (and (goal_on-table ?b) (on-table ?b))
-    :effect (and (not (goal_on-table ?b)) (done ?b))
+    :effect (done ?b)
     :tasks ((achieve-goals ?a)))
 
   (:method mark-done-on
     :task (achieve-goals ?a)
     :parameters (?b ?d - BLOCK ?a - ARM)
-    :precondition (and (goal_on ?b ?d) (clear ?d) (done ?d))
-    :effect (and (not (goal_on ?b ?d)) (done ?b))
+    :precondition (and (goal_on ?b ?d) (on ?b ?d) (done ?d))
+    :effect (done ?b)
     :tasks ((achieve-goals ?a)))
 
   (:method pickup-ready-block
     :task (achieve-goals ?a)
     :parameters (?b ?d - BLOCK ?a - ARM)
     :precondition (and (clear ?b) (on-table ?b) (goal_on ?b ?d) (done ?d) (clear ?d))
-    :tasks ((pickup ?b ?a) (release ?a)))
+    :tasks ((acquire ?b ?a) (release ?a)))
 
   (:method unstack-block
     :task (achieve-goals ?a)
-    :parameters (?b ?d - BLOCK ?a - ARM)
-    :precondition (and (clear ?b) (on ?b ?d))
-    :tasks ((unstack ?b ?d ?a) (release ?a)))
+    :parameters (?b - BLOCK ?a - ARM)
+    :precondition (and (clear ?b) 
+        (exists (?d - BLOCK) (on ?b ?d)))
+    :tasks ((acquire ?b ?a) (release ?a)))
 
   (:method release-stack
     :task (release ?a)
@@ -62,16 +62,17 @@
   (:method release-table
     :task (release ?a)
     :parameters (?b - BLOCK ?a - ARM)
-    :precondition (holding ?b ?a)
+    :precondition (and (holding ?b ?a) (not (goal_on-table ?b)))
     :tasks ((putdown ?b) (achieve-goals ?a)))
  
   (:method done
     :parameters (?a - ARM)
+    :precondition (forall (?b - BLOCK) (done ?b))
     :task (achieve-goals ?a))
    
   (:action pickup
     :parameters (?b - BLOCK ?a - ARM)
-    :task (pickup ?b ?a)
+    :task (acquire ?b ?a)
     :precondition (and (hand-empty ?a) (clear ?b) (on-table ?b))
     :effect (and
       (not (hand-empty ?a))
@@ -103,7 +104,7 @@
 
   (:action unstack
     :parameters (?top - BLOCK ?bottom - BLOCK ?a - ARM)
-    :task (unstack ?top ?bottom ?a)
+    :task (acquire ?top ?a)
     :precondition (and
       (hand-empty ?a)
       (clear ?top)

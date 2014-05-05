@@ -3,4 +3,4 @@
  (:domain ordering)
  (:init
   (left))
- (:task (t0)))
+ (:tasks ((t0))))
