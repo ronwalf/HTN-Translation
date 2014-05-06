@@ -1,0 +1,153 @@
+{-# OPTIONS_GHC
+    -fcontext-stack=30
+    -Wall
+  #-}
+{-# LANGUAGE
+  FlexibleContexts,
+  FlexibleInstances,
+  FunctionalDependencies,
+  IncoherentInstances,
+  MultiParamTypeClasses,
+  ParallelListComp,
+  RankNTypes,
+  ScopedTypeVariables,
+  TypeOperators
+  #-}
+module HTNTranslation.TOTranslation09
+where
+
+import Control.Monad
+import Control.Monad.State
+import Data.List
+-- import qualified Data.Map as Map
+import Data.Maybe
+-- import Text.Printf
+
+import Planning.Records
+import Planning.Expressions
+import Planning.Util
+import HTNTranslation.HTNPDDL
+import HTNTranslation.TOTranslation hiding (translateMethod)
+
+translateMethod :: forall m dom sdom template action pre eff.
+    (MonadState (dom, TranslationData sdom template) m, MonadPlus m,
+     HasPredicates (Expr (Atomic TypedVarExpr)) dom,
+     HasName action, HasName template,
+     HasParameters TypedVarExpr action, HasParameters TypedVarExpr template,
+     HasPrecondition (Maybe String, Expr pre) action, 
+     HasPrecondition (Maybe String, Expr pre) template,
+     Atomic TermExpr :<: pre, AtomicExpression TermExpr pre, Not :<: pre,
+     And :<: pre, Conjuncts pre pre, ForAll TypedVarExpr :<: pre,
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) action, 
+     HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
+     Atomic TermExpr:<: eff, AtomicExpression TermExpr eff, Not :<: eff,
+     HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
+     HasTaskLists TermExpr action,
+     HasTaskConstraints action,
+     HasActions template dom,
+     HasTaskHead [StdTaskDef] sdom
+     )
+    => action -> m ()
+translateMethod m = do
+    guard $ isJust $ getTaskHead m
+    guard $ not $ null $ getTaskLists m
+    template <- getTemplate
+    sdom <- getSDomain
+    let task = fromJust $ getTaskHead m 
+    when (isNothing $ findFirstTask m) $ fail $ "Method " ++ getName m ++ " has no first task (can't use totally-ordered translation)"
+    let firstTask = fromJust $ findFirstTask m 
+    let hid = htnIdV 1
+    let hidn = htnIdV 2
+    let params = getParameters m ++ [htnIdP 1, htnIdP 2]
+    let precond = 
+            (Nothing, taskP (taskName task) (taskArgs task) hid)
+            : (Nothing, topP hid)
+            : (Nothing, nextIdP hid hidn)
+            : getPrecondition m
+    tasklist <- mkTaskList firstTask
+    nextTask <- controlOps tasklist
+    let effect = 
+            [ ([], Nothing, 
+                [ eNot $ taskP (taskName task) (taskArgs task) hid
+                , taskP (taskName $ snd firstTask) (taskArgs $ snd firstTask) hidn
+                , eNot (topP hid)
+                , topP hidn
+                , nextTask hid
+                ])]
+            ++ getEffect m
+    let action = 
+            setName ("htn_" ++ getName m) $
+            setParameters params $
+            setPrecondition precond $
+            setEffect effect $
+            template
+    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
+    addAction action
+    return ()
+    where
+    mkTaskList :: (Int, Expr (Atomic TermExpr)) -> m [(Int, Expr (Atomic TermExpr))]
+    mkTaskList (n,_) = do
+        case findNextTasks m n of
+            [] -> return []
+            [t] -> liftM (t : ) $ mkTaskList t
+            _ -> fail $ "Method " ++ getName m ++ " is not totally ordered!"
+    controlOps :: [(Int, Expr (Atomic TermExpr))] -> m (TermExpr -> Expr eff)
+    controlOps [] = fail $ "Error! Empty list for controlOps"
+    controlOps tl@[(n,t)] = do
+        template <- getTemplate
+        let hid = htnIdV 1
+        let params = remainingParams tl
+        let pterms :: [TermExpr] = map liftE $ concatMap findFreeVars params
+        let cpred = controlP (getName m) n pterms
+        let precond =
+                [ (Nothing, controlP (getName m) n pterms hid)
+                , (Nothing, topP hid) ]
+        let effect = [( [], Nothing, 
+                [ eNot $ cpred hid
+                , taskP (taskName t) (taskArgs t) hid
+                ])]
+        let action =
+                setName ("htn_control_" ++ getName m ++ "_" ++ show n) $
+                setParameters (params ++ [htnIdP 1]) $
+                setPrecondition precond $
+                setEffect effect $
+                template
+        ensurePred (controlP (getName m) n params (htnIdP 1))
+        addAction action
+        return cpred
+    controlOps tl@((n,t):_) = do
+        template <- getTemplate
+        let hid = htnIdV 1
+        let hidn = htnIdV 2
+        let params = remainingParams tl
+        let pterms :: [TermExpr] = map liftE $ concatMap findFreeVars params
+        let cpred = controlP (getName m) n pterms
+        npred <- controlOps $ tail tl
+        let precond =
+                [ (Nothing, controlP (getName m) n pterms hid)
+                , (Nothing, topP hid)
+                , (Nothing, nextIdP hid hidn)
+                ]
+        let effect = [( [], Nothing, 
+                [ eNot $ cpred hid
+                , eNot $ topP hid
+                , topP hidn
+                , taskP (taskName t) (taskArgs t) hidn
+                , npred hid
+                ])]
+        let action =
+                setName ("htn_control_" ++ getName m ++ "_" ++ show n) $
+                setParameters (params ++ [htnIdP 1, htnIdP 2]) $
+                setPrecondition precond $
+                setEffect effect $
+                template
+        ensurePred (controlP (getName m) n params (htnIdP 1))
+        addAction action
+        return cpred
+    remainingParams :: [(Int, Expr (Atomic TermExpr))] -> [TypedVarExpr]
+    remainingParams tl = 
+        let fvars = nub $ concatMap (findFreeVars . snd) tl in
+        filter (not . null . flip intersect fvars . findFreeVars) $
+        getParameters m
+
+        

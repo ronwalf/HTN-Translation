@@ -37,6 +37,7 @@ Library
         HTNTranslation.ADLTranslation, 
         HTNTranslation.Translation, 
         HTNTranslation.TOTranslation, 
+        HTNTranslation.TOTranslation09,
         HTNTranslation.ProblemLifter, 
         HTNTranslation.ProgressionBounds
   Hs-Source-Dirs: src

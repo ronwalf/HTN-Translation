@@ -1,5 +1,5 @@
 (define (domain blocks)
-  (:requirements :strips :disjunctive-preconditions)
+  (:requirements :strips :negative-preconditions)
   (:types BLOCK)
   (:predicates
     (hand-empty)
@@ -27,8 +27,8 @@
 
   (:method mark-done-on
     :task (achieve-goals)
-    :parameters (?b ?d - BLOCK)
-    :precondition (and (goal_on ?b ?d) (on ?b ?d) (done ?d))
+    :parameters (?b - BLOCK)
+    :precondition (exists (?d - BLOCK) (and (goal_on ?b ?d) (on ?b ?d) (done ?d)))
     :effect (done ?b)
     :tasks ((achieve-goals)))
 
@@ -36,13 +36,19 @@
     :task (achieve-goals)
     :parameters (?b - BLOCK)
     :precondition (and (clear ?b) (not (done ?b)) 
-        (exists (?d - BLOCK) (and (goal_on ?b ?d) (done ?d) (clear ?d))))
+        (exists (?d - BLOCK) (and 
+            (goal_on ?b ?d) 
+            (done ?d) 
+            (clear ?d))))
     :tasks ((acquire ?b) (release)))
 
   (:method unstack-block
     :task (achieve-goals)
     :parameters (?b - BLOCK)
-    :precondition (and (clear ?b) (not (done ?b)) (not (goal_on-table ?b)) (exists (?d - BLOCK) (on ?b ?d)))
+    :precondition (and 
+        (clear ?b) 
+        (not (done ?b))
+        (not (on-table ?b)))
     :tasks ((acquire ?b) (release)))
 
   (:method release-stack

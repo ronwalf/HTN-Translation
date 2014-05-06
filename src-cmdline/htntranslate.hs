@@ -29,9 +29,14 @@ import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
 import qualified HTNTranslation.ADLTranslation as ATrans 
 import qualified HTNTranslation.TOTranslation as TOTrans
+import qualified HTNTranslation.TOTranslation09 as TOTrans09
 import HTNTranslation.ProgressionBounds as PB
 
-data TranslationType = ADLTranslation | TOTranslation | STRIPSTranslation
+data TranslationType = 
+    ADLTranslation 
+    | STRIPSTranslation
+    | TOTranslation 
+    | TOTranslation09
 
 data Options = Options
     { optTrans :: TranslationType
@@ -58,9 +63,10 @@ options =
                 "adl" -> return ADLTranslation
                 "strips" -> return STRIPSTranslation
                 "ordered" -> return TOTranslation
+                "ordered09" -> return TOTranslation09
                 _ -> fail $ "Unknown translation type '" ++ t ++ "'")
             "TYPE")
-        "Set the translation type (adl|strips|ordered)"
+        "Set the translation type (adl|strips|ordered|ordered09)"
     , Option ['i']  ["identifiers"]
         (ReqArg (\n opts -> do
             case (reads n) of
@@ -118,6 +124,7 @@ processProblem opts domain fname = do
             return bound 
     let problem' = case optTrans opts of
             TOTranslation -> TOTrans.translateProblem emptyProblem numIds lifted
+            TOTranslation09 -> TOTrans.translateProblem emptyProblem numIds lifted
             ADLTranslation -> ATrans.translateProblem emptyProblem numIds lifted
             STRIPSTranslation -> translateProblem emptyProblem numIds lifted
     saveFile opts fname $ show $ pddlDoc problem'
@@ -144,6 +151,8 @@ main = do
     let tdomain = case optTrans opts of
             TOTranslation -> TOTrans.translateDomain emptyDomain defaultAction domain
                 [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans.translateMethod]
+            TOTranslation09 -> TOTrans.translateDomain emptyDomain defaultAction domain
+                [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans09.translateMethod]
             ADLTranslation -> ATrans.translateDomain emptyDomain defaultAction domain 
                     [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
             STRIPSTranslation -> translateDomain emptyDomain defaultAction domain numIds
