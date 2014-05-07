@@ -13,9 +13,18 @@ HTNTranslation requires a recent copy of [Haskell](http://hackage.haskell.org/pl
     $ cabal install --user
     ...
 
-HTNTranslation installs one executable, `htntranslate`, which is self documenting.  See `examples/toy/basic.txt` and `examples/toy/ordering.txt` for a demonstration of how to translate a domain and problem and then find a solution using the [FF](http://fai.cs.uni-saarland.de/hoffmann/ff.html) planner.  
+HTNTranslation installs one executable, `htntranslate`, which is self documenting.  See `examples/toy/README.txt` for a demonstration of how to translate a domain and problem and then find a solution using the [FF](http://fai.cs.uni-saarland.de/hoffmann/ff.html) planner.  
 
-Of note is the '-i' parameter, which specifies how many constants need to be added to the domain for the HTN to run.  This roughly corresponds to the non-tail recursion depth of your HTNs, and future work may include automatically deriving this parameter in the [(large) subset of cases where it is possible](http://www.aaai.org/ocs/index.php/SOCS/SOCS12/paper/view/5378/5170).
+For non-tail recursive problems, it is necessary to specify the '-i' parameter, which specifies how many constants need to be added to the domain for the HTN to run.  This roughly corresponds to the non-tail recursion depth of your HTNs.  `htntranslate` calculates the bound automatically for tail recursive problems.
+
+## Translation types
+
+There are four different translation types currently available - two for totally-ordered (TO) problems and two for partially-ordered (PO) problems.  You can specify the translation type with the `-t` option.
+
+* `strips`: A STRIPS-compatible translation for both TO and PO problems.  This should work with most planners, although planners may be rather slow with it.
+* `adl`: An ADL-compatible translation for both TO and PO problems.  This makes use of quantified effects, axioms, and negated preconditions.  Both FF-X and FastDownward are faster with ADL translations
+* `ordered`: A STRIPS-compatible translation for TO problems.  This translation is generally faster than the ADL translation for the problems it covers.
+* `ordered09`: An implementation of the original translation appearing in IJCAI-09.  The automated translation bounds are overly conservative for this translation, and so you may get slightly better performance by manually specifying the `-i` option.
     
 
 ## Syntax
@@ -62,3 +71,6 @@ We can specify arbitrary partial orders by naming the task fields and adding an 
      :ordering ( (h i) (h j) (i k) (j k) ))
 
 The `t0` method implements the task `(t0)` and has four subtasks, `(c)`, `(t1)`, `(t2)`, and `(c)`.  Here we name each of the subtasks `h` through `k`, and then restrict `h` to come before `i` and `j`, and `i` and `j` to come before `k`.  This lets us interleave the decomposition of `(t1)` and `(t2)`.
+
+### Problem specification
+Problems are specified as PDDL notation with the addition of the `:tasks` and `:ordering` fields common to methods.  The `:goal(...)` field is optional.
