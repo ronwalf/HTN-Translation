@@ -148,7 +148,7 @@ main = do
         putStrLn $ show domain
         putStrLn ""
     numIds <- liftM (maximum . (1:)) $ mapM (processProblem opts domain) probFiles 
-    let tdomain = case optTrans opts of
+    tdomain <- case optTrans opts of
             TOTranslation -> TOTrans.translateDomain emptyDomain defaultAction domain
                 [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans.translateMethod]
             TOTranslation09 -> TOTrans.translateDomain emptyDomain defaultAction domain

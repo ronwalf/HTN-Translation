@@ -197,7 +197,8 @@ translateProblem template numIds problem =
 ---------------------
 
 translateDomain :: 
-    ( HasName a, HasName b
+    ( MonadPlus m
+    , HasName a, HasName b
     , HasRequirements a, HasRequirements b
     , HasTypes (TypedTypeExpr) a, HasTypes (TypedTypeExpr) b
     , HasConstants TypedConstExpr a, HasConstants TypedConstExpr b
@@ -210,20 +211,17 @@ translateDomain ::
     , HasDerived (TypedPredicateExpr, Expr g) b
     , Atomic TermExpr :<: g, Not :<: g, And :<: g
     , Exists TypedVarExpr :<: g, ForAll TypedVarExpr :<: g
-    ) => b -> template -> a -> [action -> StateT (b, TranslationData a template) Maybe ()] -> b
+    ) => b -> template -> a -> [action -> StateT (b, TranslationData a template) m ()] -> m b
 translateDomain domTemplate actionTemplate dom transl =
     let
         copy = 
             domainSetup domTemplate dom
         tstate = (copy, TranslationData dom actionTemplate)
-        translated =
-            fst $
-            fromJust $
-            flip execStateT tstate$
-            mapM_ (\a -> msum $ map (\trans -> trans a) transl) $
-            getActions dom
     in
-    translated
+    liftM fst $
+    flip execStateT tstate$
+    mapM_ (\a -> msum $ map (\trans -> trans a) transl) $
+    getActions dom
 
 --------------
 -- Translators

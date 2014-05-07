@@ -227,7 +227,8 @@ translateProblem template numIds problem =
 ---------------------
 
 translateDomain :: 
-    ( HasName a, HasName b
+    ( MonadPlus m
+    , HasName a, HasName b
     , HasRequirements a, HasRequirements b
     , HasTypes (TypedTypeExpr) a, HasTypes (TypedTypeExpr) b
     , HasConstants TypedConstExpr a, HasConstants TypedConstExpr b
@@ -240,20 +241,17 @@ translateDomain ::
     , HasDerived (TypedPredicateExpr, Expr g) b
     , Atomic TermExpr :<: g, Not :<: g, And :<: g
     , Exists TypedVarExpr :<: g, ForAll TypedVarExpr :<: g
-    ) => b -> template -> a -> Int -> [action -> Int -> StateT (b, TranslationData a template) Maybe ()] -> b
+    ) => b -> template -> a -> Int 
+      -> [action -> Int -> StateT (b, TranslationData a template) m ()] -> m b
 translateDomain domTemplate actionTemplate dom numIds transl =
     let
-        copy = 
-            domainSetup domTemplate numIds dom
+        copy = domainSetup domTemplate numIds dom
         tstate = (copy, TranslationData dom actionTemplate)
-        translated =
-            fst $
-            fromJust $
-            flip execStateT tstate$
-            mapM_ (\a -> msum $ map (\trans -> trans a numIds) transl) $
-            getActions dom
     in
-    translated
+    liftM fst $
+    flip execStateT tstate $
+    mapM_ (\a -> msum $ map (\trans -> trans a numIds) transl) $
+    getActions dom
 
 -- |Identify which tasks have successors (and thus need to be tail recursive)
 tasksWithSuccessors :: forall action domain .
@@ -341,8 +339,9 @@ translateDummy ::
     ( MonadState (dom, TranslationData sdom template) m, MonadPlus m
     , HasActions template dom
     , HasName action, HasName template )
-    => action -> m ()
-translateDummy m = do
+    => action -> Int -> m ()
+translateDummy m _ = do
+    _ <- fail "Shouldn't get here!"
     template <- getTemplate
     addAction $ setName (getName m) template
     
@@ -509,7 +508,7 @@ translateMethod m numIds = do
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m 
     let lastTask = findLastTask m 
-    when (isNothing lastTask) $ fail $ "Method " ++ getName m ++ " has no last task (can't use STRIPS translation)"
+    -- when (isNothing lastTask) $ fail $ "Method " ++ getName m ++ " has no last task (can't use STRIPS translation)"
     let tasks = taskNums lastTask $ reverse $ enumerateTasks m
     let hid = htnIdV 1
     let alloc = 
