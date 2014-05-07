@@ -1,0 +1,111 @@
+;; Tests planning performance when explicitly putting move parameters in task names
+(define (domain robot)
+  (:requirements :strips :negative-preconditions :typing)
+  (:types PACKAGE ROOM ROOMDOOR)
+  (:predicates 
+    (armempty)
+    (rloc ?loc - ROOM) 
+    (in ?obj - PACKAGE ?loc - ROOM)
+    (holding ?obj - PACKAGE)
+    (closed ?d - ROOMDOOR)
+    (door ?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+    
+    (goal_in ?obj - PACKAGE ?loc - ROOM))
+  (:tasks
+    (achieve-goals)
+    (release ?loc1 - ROOM ?loc2 - ROOM)
+    (pickup ?obj - PACKAGE)
+    (putdown)
+    (move ?loc - ROOM)
+    (travel ?loc1 - ROOM ?loc2 - ROOM)
+    (open))
+
+(:action pickup
+ :parameters (?obj - PACKAGE ?loc - ROOM)
+ :task (pickup ?obj)
+ :precondition (and (armempty) (rloc ?loc) (in ?obj ?loc)) 
+ :effect (and (not (in ?obj ?loc)) (not (armempty)) (holding ?obj))
+)
+
+(:action putdown
+ :parameters (?obj - PACKAGE ?loc - ROOM)
+ :task (putdown)
+ :precondition (and (rloc ?loc) (holding ?obj) (goal_in ?obj ?loc))
+ :effect (and (not (holding ?obj)) (armempty) (in ?obj ?loc))
+)
+
+(:action move
+ :parameters (?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+ :task (move ?loc2)
+ :precondition (and (rloc ?loc1) (door ?loc1 ?loc2 ?d) (not (closed ?d)))
+ :effect (and (rloc ?loc2) (not (rloc ?loc1)))
+)
+
+(:action open
+ :parameters (?loc1 - ROOM ?loc2 - ROOM ?d - ROOMDOOR)
+ :task (open)
+ :precondition (and (rloc ?loc1) (door ?loc1 ?loc2 ?d) (closed ?d))
+ :effect (and (not (closed ?d)))
+)
+
+(:method release-putdown 
+ :task (release ?loc ?loc)
+ :parameters (?loc - ROOM)
+ :precondition (and (rloc ?loc) (exists (?obj - PACKAGE) (and
+        (holding ?obj)
+        (goal_in ?obj ?loc))))
+ :tasks ((putdown) (achieve-goals)))
+
+(:method release-move
+ :parameters (?loc ?loc1 ?loc2 - ROOM)
+ :task (release ?loc ?loc2)
+ :precondition (and (rloc ?loc) (exists (?d - ROOMDOOR) (and
+    (door ?loc ?loc1 ?d) (not (closed ?d)))))
+ :tasks ((move ?loc1) (release ?loc1 ?loc2)))
+
+(:method release-open
+ :parameters (?loc1 ?loc2 - ROOM)
+ :task (release ?loc1 ?loc2)
+ :precondition (and (rloc ?loc1) (exists (?loc - ROOM ?d - ROOMDOOR) (and
+    (door ?loc1 ?loc ?d) (closed ?d))))
+ :tasks ((open) (release ?loc1 ?loc2)))
+
+
+(:method travel-pickup
+ :parameters (?loc1 ?loc2 - ROOM ?obj - PACKAGE)
+ :task (travel ?loc1 ?loc1)
+ :precondition (and 
+        (rloc ?loc1) 
+        (in ?obj ?loc1) 
+        (not (goal_in ?obj ?loc1)))
+ :tasks ((pickup ?obj) (release ?loc1 ?loc2)))
+
+(:method travel-move
+ :parameters (?loc ?loc1 ?loc2 - ROOM)
+ :task (travel ?loc ?loc2)
+ :precondition (and (rloc ?loc) (exists (?d - ROOMDOOR) (and 
+    (door ?loc ?loc1 ?d) (not (closed ?d)))))
+ :tasks ((move ?loc1) (travel ?loc1 ?loc2)))
+
+(:method travel-open 
+ :parameters (?loc1 ?loc2 - ROOM)
+ :task (travel ?loc1 ?loc2)
+ :precondition (and (rloc ?loc1) (exists (?loc - ROOM ?d - ROOMDOOR) (and
+    (door ?loc1 ?loc ?d) (closed ?d))))
+ :tasks ((open) (travel ?loc1 ?loc2)))
+
+
+(:method select-package
+ :parameters (?loc1 ?loc2 - ROOM)
+ :task (achieve-goals)
+ :precondition (and (rloc ?loc1) (exists (?p - PACKAGE) (and
+    (in ?p ?loc2)
+    (not (goal_in ?p ?loc2)))))
+ :tasks ((travel ?loc1 ?loc2)))
+
+(:method finished
+ :task (achieve-goals)
+ :precondition (forall (?obj - PACKAGE) 
+    (exists (?loc - ROOM) (and
+        (goal_in ?obj ?loc)
+        (in ?obj ?loc))))))
