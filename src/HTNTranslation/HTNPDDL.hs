@@ -27,12 +27,13 @@ module HTNTranslation.HTNPDDL (
     taskName, taskArgs, StdTask, StdTaskHead, StdTaskDef,
     enumerateTasks, numberTasks,
     findFirstTask, findLastTask, findLastTasks, findNextTasks, findPrevTasks,
-    parseHTNPDDL, parseHTNProblem
+    parseHTNPDDL, parseHTNProblem,
+    htnDescLexer, taskConstraintParser, taskListParser,
 ) where
 
 import Control.Monad.State
 import Data.List
-import Data.Generics (Data, Typeable, Typeable2)
+import Data.Generics (Data, Typeable)
 import Data.Maybe
 import Text.ParserCombinators.Parsec hiding (space)
 import qualified Text.ParserCombinators.Parsec.Token as T
@@ -69,7 +70,10 @@ instance (Data a, Data b, Data g, PDDLDoc a, PDDLDoc b, PDDLDoc g) =>
     pddlDoc domain = parens $ ($$) (text "define") $ vcat $
         parens (text "domain" <+> text (getName domain)) :
          -- Requirement strings are prefixed with ':'
-        docList (parens . sep . (text ":requirements" :) . map pddlDoc) (getRequirements domain) :
+        (if (null $ getRequirements domain) then empty else parens
+            (sep $
+             map (text . (':':)) $
+             "requirements" : getRequirements domain)) :        
         docList (parens . sep . (text ":types" :) . (:[]) . pddlDoc) (getTypes domain) :
         docList (parens . sep . (text ":predicates" :) . map pddlDoc) (getPredicates domain) :
         docList (parens . sep . (text ":tasks" :) . map pddlDoc) (getTaskHead domain) :
@@ -100,7 +104,7 @@ emptyHDomain = HDomain
 
 
 type StandardHTNDomain = HDomain ConstraintGDExpr StandardMethod GDExpr
-type StandardHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr ConstraintGDExpr (Expr (Atomic ConstTermExpr))
+type StandardHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr ConstraintGDExpr ConstTermExpr
 
 --deriving instance Data (Expr (DomainItem StandardHAction :+: DomainItem StandardMethod))
 
@@ -110,8 +114,7 @@ data HProblem a b c t = HProblem
     Requirements
     (Constants TypedConstExpr)
     (Initial a)
-    --(TaskHead (Maybe t))
-    (TaskLists ConstTermExpr)
+    (TaskLists t)
     TaskConstraints
     (Goal b)
     (Constraints c)
@@ -123,7 +126,7 @@ instance (Data a, Data b, Data c, Data t) => HasDomainName (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasRequirements (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasConstants TypedConstExpr (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasInitial a (HProblem a b c t)
-instance (Data a, Data b, Data c, Data t) => HasTaskLists ConstTermExpr (HProblem a b c t)
+instance (Data a, Data b, Data c, Data t) => HasTaskLists t (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasTaskConstraints (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasGoal b (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasConstraints c (HProblem a b c t)
@@ -133,7 +136,7 @@ instance (Data a, Data b, Data c, Data t) => HasConstraints c (HProblem a b c t)
 --     PDDLDocExpr a, PDDLDocExpr b, PDDLDocExpr c) =>
 --    Show (HProblem (Expr a) (Expr b) (Expr c)) where
 instance (Data a, Data b, Data c, Data t,
-        PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDoc t) =>
+        PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDocExpr (Atomic t)) =>
         PDDLDoc (HProblem a b c t) where
     pddlDoc prob = parens $ sep $
         text "define" :
@@ -145,8 +148,8 @@ instance (Data a, Data b, Data c, Data t,
         docList (parens . sep . (text ":init" :) . map pddlDoc) (getInitial prob) :
         docMaybe (parens . sep . (text ":goal" :) . (:[]) . pddlDoc) (getGoal prob) :
         docMaybe (parens . sep . (text ":constraints" :) . (:[]) . pddlDoc) (getConstraints prob) :
-        map tasklist (getTaskLists prob)
-        ++ [docList ((text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints prob)]
+        map (parens . tasklist) (getTaskLists prob)
+        ++ [docList (parens . (text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints prob)]
        
     
 emptyHProblem :: forall a b c t. HProblem a b c t
@@ -368,7 +371,7 @@ data Method c e = Method
     (TaskLists TermExpr)
     TaskConstraints
     deriving (Data, Eq)
-deriving instance Typeable2 Method
+deriving instance Typeable Method
 
 
 instance (Data c, Data e) => HasName (Method c e)

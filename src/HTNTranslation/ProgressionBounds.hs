@@ -14,7 +14,7 @@
     TypeOperators,
     TypeSynonymInstances
   #-}
-module HTNTranslation.ProgressionBounds where
+module HTNTranslation.ProgressionBounds (boundProgression, findMethods, findReachableTasks) where
 
 import Control.Monad (liftM, when)
 import Data.Graph
@@ -56,7 +56,7 @@ boundProgression domain problem = do
         flip mapM_ 
             (filter (not . (== findLastTask action) . Just) $ 
             enumerateTasks action) $ 
-        \(_, ts) -> when (taskName ts `elem` cyclic) $ fail $ getName action ++ " has non-tail recursion through task " ++ (taskName ts)
+        \(_, ts) -> when (taskName ts `elem` cyclic) $ fail $ getName action ++ " has non-tail recursion through task " ++ (taskName ts) ++ " in problem " ++ (getName problem)
 
 
 -- |Bound progression for a list of task cycles
@@ -177,6 +177,6 @@ findMethods :: forall a action domain .
     , HasTaskConstraints action
     , HasActions action domain
     ) => domain -> String -> [action]
-findMethods domain task =
-    filter ((==) (Just task) . fmap taskName . getTaskHead) $
+findMethods domain task = {-# SCC "findMethods" #-}
+    filter (fromMaybe False . fmap ((== task) . taskName) . getTaskHead) $
     getActions domain

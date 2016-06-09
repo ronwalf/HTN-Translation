@@ -1,0 +1,14 @@
+(define
+ (problem basic_problem)
+ (:domain basic)
+ (:objects
+  banjo - OBJ viola - OBJ apple - OBJ)
+ (:init
+  (have banjo))
+ (:tasks ((swap ?x ?y)))
+ (:goal (and
+  (have apple)
+  )))
+
+ 
+  

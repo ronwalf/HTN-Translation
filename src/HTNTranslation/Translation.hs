@@ -38,9 +38,13 @@ htnIdC :: (Const :<: f) => Int -> Expr f
 htnIdC n = eConst $ "htn_id" ++ show n
 
 -- Predicates
-taskP :: (AtomicExpression t f) => String -> [t] -> t -> Expr f
-taskP name terms tid =
-    eAtomic ("htn_task_" ++ name) (terms ++ [tid])
+taskP :: (AtomicExpression t f) => Int -> String -> [t] -> t -> [Expr f]
+taskP arity name terms tid =
+    let tarity = arity - 1 in
+    [ eAtomic ("htn_task_" ++ name ++ "_" ++ show i) (iterms ++ [tid])
+    | i <- [0 .. (length terms) `div` tarity ]
+    , iterms <- [take tarity $ drop (tarity * i) terms]
+    ]
 
 -- Predicate for order of free ID constants
 lessThanP :: forall a f. (AtomicExpression a f) => a -> a -> Expr f
@@ -49,8 +53,10 @@ lessThanP id1 id2 = eAtomic "htn_less_than" [id1, id2]
 nextIdP :: forall a f. (AtomicExpression a f) => a -> a -> Expr f
 nextIdP id1 id2 = eAtomic "htn_next_id" [id1, id2]
 -- Predicate for stating id1 is not used
+{-
 freeP :: forall a f. (AtomicExpression a f) => a -> Expr f
 freeP id1 = eAtomic "htn_is_free" [id1]
+-}
 -- Predicate for stating id1 doesn't constraint id2
 permitsP :: forall a f. (AtomicExpression a f) => a -> a -> Expr f
 permitsP id1 id2 = eAtomic "htn_permits" [id1, id2]
@@ -127,22 +133,21 @@ domainSetup ::
     , HasDerived (TypedPredicateExpr, Expr g) template
     , Atomic TermExpr :<: g, Not :<: g, And :<: g
     , Exists TypedVarExpr :<: g, ForAll TypedVarExpr :<: g
-    ) => template -> Int -> dom -> template
-domainSetup template numIds domain =
+    ) => template -> Int -> Int -> dom -> template
+domainSetup template maxArity numIds domain =
     let
         htnIdPs =
-            [ freeP (htnIdP 1)
-            , nextIdP (htnIdP 1) (htnIdP 2)
+            [ nextIdP (htnIdP 1) (htnIdP 2)
             , permitsP (htnIdP 1) (htnIdP 2)
             , lessThanP (htnIdP 1) (htnIdP 2)
             ]
         preds = getPredicates domain 
             ++ htnIdPs
-            ++ [taskP (taskName t) (taskArgs t) (htnIdP 1) | t <- getTaskHead domain]
+            ++ concat [taskP maxArity (taskName t) (taskArgs t) (htnIdP 1) | t <- getTaskHead domain]
         types = getTypes domain ++ [eTyped htnIdT []]
         requirements = nub $ getRequirements domain ++ ["typing"]
         constants = getConstants domain ++ 
-            map (flip eTyped [htnIdT] . (htnIdC :: Int -> Expr Const)) [0 .. numIds]
+            map (flip eTyped [htnIdT] . (htnIdC :: Int -> Expr Const)) [0 .. numIds + 1]
     in
     setName (getName domain) $
     setRequirements (nub requirements) $
@@ -169,8 +174,8 @@ translateProblem :: forall template problem g c f .
     HasTaskConstraints problem,
     HasInitial (Expr f) template, HasInitial (Expr f) problem,
     Atomic ConstTermExpr :<: f)
-    => template -> Int -> problem -> template
-translateProblem template numIds problem =
+    => template -> Int -> Int -> problem -> template
+translateProblem template maxArity numIds problem =
     setName (getName problem) $
     setDomainName (getDomainName problem) $
     setRequirements (getRequirements problem) $
@@ -184,15 +189,15 @@ translateProblem template numIds problem =
     goal :: Expr g
     goal = maybe htnStopped (\g -> conjunct [htnStopped, g]) $ 
         getGoal problem
-    useableIds :: forall e . (Const :<: e) => [Expr e]
-    useableIds = map (htnIdC :: Int -> Expr e) [1 .. numIds]
     allIds :: forall e . (Const :<: e) => [Expr e]
-    allIds = (htnIdC 0 :: Expr e) : useableIds
+    allIds = map (htnIdC :: Int -> Expr e) [0 .. numIds + 1]
+    useableIds :: forall e . (Const :<: e) => [Expr e]
+    useableIds = take numIds $ (tail allIds)
     htnStopped :: Expr g
-    htnStopped = conjunct $ map freeP (useableIds :: [TermExpr])
+    htnStopped = conjunct $ zipWith nextIdP (allIds :: [TermExpr]) (tail allIds)
     idInits :: [(Int, Expr (Atomic ConstTermExpr))] -> template -> template
     idInits [] p =
-        setInitial (getInitial p ++ freeList (allIds ++ [head allIds]) ++ idOrder ++ 
+        setInitial (getInitial p ++ freeList allIds ++ idOrder ++ 
             [permitsP (c1 :: ConstTermExpr) c2 | c1 <- useableIds, c2 <- useableIds]) p
     idInits tl p =
         let 
@@ -203,10 +208,10 @@ translateProblem template numIds problem =
                 , t2 `elem` findNextTasks problem (fst t1) ]
         in
         setInitial (getInitial p 
-            ++ [ taskP (taskName t) (taskArgs t) hid 
+            ++ concat [ taskP maxArity (taskName t) (taskArgs t) hid 
                | (hid, (_, t)) <- idtl ]
-            ++ map freeP (drop (length tl) useableIds :: [ConstTermExpr])
-            ++ freeList (head allIds : drop (length tl) useableIds ++ [head allIds])
+            -- ++ map freeP (drop (length tl) useableIds :: [ConstTermExpr])
+            ++ freeList (head allIds : drop (length tl + 1) allIds)
             ++ [permitsP (c1 :: ConstTermExpr) c2 | c1 <- useableIds, c2 <- useableIds, 
                 (c1, c2) `notElem` constrainedIds]
             ++ idOrder) $
@@ -218,8 +223,10 @@ translateProblem template numIds problem =
         | c2 <- tail nl ]
     idOrder :: [Expr f]
     idOrder =
-        [ lessThanP (htnIdC c1 :: ConstTermExpr) (htnIdC c2) 
-        | c1 <- [0..numIds], c2 <- [(c1+1) .. numIds] ++ [0] ]
+        [ lessThanP (c1 :: ConstTermExpr) (c2) 
+        | cl <- filter (not . null) $ tails allIds,
+          c1 <- [head cl],
+          c2 <- tail cl ]
 
 
 ---------------------
@@ -241,16 +248,16 @@ translateDomain ::
     , HasDerived (TypedPredicateExpr, Expr g) b
     , Atomic TermExpr :<: g, Not :<: g, And :<: g
     , Exists TypedVarExpr :<: g, ForAll TypedVarExpr :<: g
-    ) => b -> template -> a -> Int 
-      -> [action -> Int -> StateT (b, TranslationData a template) m ()] -> m b
-translateDomain domTemplate actionTemplate dom numIds transl =
+    ) => b -> template -> a -> Int -> Int
+      -> [action -> Int -> Int -> StateT (b, TranslationData a template) m ()] -> m b
+translateDomain domTemplate actionTemplate dom maxArity numIds transl =
     let
-        copy = domainSetup domTemplate numIds dom
+        copy = domainSetup domTemplate maxArity numIds dom
         tstate = (copy, TranslationData dom actionTemplate)
     in
     liftM fst $
     flip execStateT tstate $
-    mapM_ (\a -> msum $ map (\trans -> trans a numIds) transl) $
+    mapM_ (\a -> msum $ map (\trans -> trans a maxArity numIds) transl) $
     getActions dom
 
 -- |Identify which tasks have successors (and thus need to be tail recursive)
@@ -356,8 +363,8 @@ translateUncontrolled :: forall m dom sdom template action param pre eff.
      HasEffect eff action, HasEffect eff template,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists TermExpr action)
-    => action -> Int -> m ()
-translateUncontrolled m _ = do
+    => action -> Int -> Int -> m ()
+translateUncontrolled m _ _ = do
     guard $ isNothing $ getTaskHead m 
     guard $ null $ getTaskLists m 
     template <- getTemplate
@@ -389,8 +396,8 @@ translateAction :: forall m dom sdom template action pre eff.
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
-    => action -> Int -> m ()
-translateAction m numIds = do
+    => action -> Int -> Int -> m ()
+translateAction m maxArity numIds = do
     guard $ isJust $ getTaskHead m
     guard $ null $ getTaskLists m
     template <- getTemplate
@@ -404,20 +411,19 @@ translateAction m numIds = do
     let params = getParameters m ++ [htnIdP 1, htnIdP 2, htnIdP 3]
     let allIds = map htnIdC [1..numIds] :: [TermExpr]
     let precond = 
-             [ (Nothing, taskP (taskName task) (taskArgs task) hid)
-             -- , (Nothing, eForAll [htnIdP 2] $ eNot $ constrainsP (htnIdV 2) hid)
-             , (Nothing, conjunct $ 
-                [ lessThanP hidp hid
+             [ (Nothing, conjunct $ 
+                taskP maxArity (taskName task) (taskArgs task) hid
+                ++ [ lessThanP hidp hid
                 , lessThanP hid hidn
                 , nextIdP hidp hidn
-                ] ++ allPermitP allIds hid)
+                ] 
+                ++ allPermitP allIds hid)
              ]
              ++ getPrecondition m
     let effect = 
             [ ([], Nothing, 
-                [ eNot $ taskP (taskName task) (taskArgs task) hid
-                , freeP hid
-                , eNot $ nextIdP hidp hidn
+                map eNot (taskP maxArity (taskName task) (taskArgs task) hid) ++
+                [ eNot $ nextIdP hidp hidn
                 , nextIdP hidp hid
                 , nextIdP hid hidn
                 ] ++ permitsAllP allIds hid)
@@ -451,8 +457,8 @@ translateMethod1 :: forall m dom sdom template action pre eff.
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
-    => action -> Int -> m ()
-translateMethod1 m numIds = do
+    => action -> Int -> Int -> m ()
+translateMethod1 m maxArity numIds = do
     guard $ isJust $ getTaskHead m
     guard $ 1 == length (enumerateTasks m)
     template <- getTemplate
@@ -463,13 +469,13 @@ translateMethod1 m numIds = do
     let params = getParameters m ++ [htnIdP 1]
     let precond = 
              (Nothing, conjunct $ 
-                [ taskP (taskName task) (taskArgs task) hid] 
+                taskP maxArity (taskName task) (taskArgs task) hid
                 ++ allPermitP (map htnIdC [1..numIds]) hid)
              : getPrecondition m
     let effect = 
             ([], Nothing, 
-                [ eNot $ taskP (taskName task) (taskArgs task) hid
-                , taskP (taskName lastTask) (taskArgs lastTask) hid ])
+                map eNot (taskP maxArity (taskName task) (taskArgs task) hid)
+                ++ taskP maxArity (taskName lastTask) (taskArgs lastTask) hid)
             : getEffect m
     let action = 
             setName ("htn_" ++ getName m) $
@@ -477,7 +483,7 @@ translateMethod1 m numIds = do
             setPrecondition precond $
             setEffect effect $
             template
-    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
+    mapM_ ensurePred (taskP maxArity (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
     addAction action
     return ()
 
@@ -500,8 +506,8 @@ translateMethod :: forall m dom sdom template action pre eff.
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
-    => action -> Int -> m ()
-translateMethod m numIds = do
+    => action -> Int -> Int -> m ()
+translateMethod m maxArity numIds = do
     guard $ isJust $ getTaskHead m
     guard $ not $ null $ getTaskLists m
     template <- getTemplate
@@ -514,22 +520,19 @@ translateMethod m numIds = do
     let alloc = 
             (nextIdP (htnIdC 0) (htnIdV 2 :: TermExpr))
             : concat [
-                [ freeP (htnIdV n :: TermExpr)
-                , nextIdP (htnIdV n :: TermExpr) (htnIdV $ n + 1) 
+                [ nextIdP (htnIdV n :: TermExpr) (htnIdV $ n + 1) 
                 ] | n <- [2 .. length tasks]]
     let params = getParameters m ++ map htnIdP [1 .. length tasks + 1]
     let precond = 
              (Nothing, conjunct $ 
-                [ taskP (taskName task) (taskArgs task) hid] 
+                taskP maxArity (taskName task) (taskArgs task) hid
                 ++ allPermitP (map htnIdC [1..numIds]) hid
                 ++ alloc)
              : getPrecondition m
     let effect = 
             [ ([], Nothing, 
-                [ eNot $ taskP (taskName task) (taskArgs task) hid ]
-                ++ [taskP (taskName t) (taskArgs t) (htnIdV i) | (i, _, t) <- tasks]
-                ++ [eNot $ freeP (htnIdV i :: TermExpr) 
-                   | (i, _, _) <- tasks, i /= 1]
+                map eNot (taskP maxArity (taskName task) (taskArgs task) hid)
+                ++ concat [taskP maxArity (taskName t) (taskArgs t) (htnIdV i) | (i, _, t) <- tasks]
                 ++ take (length tasks) (
                     ( eNot $ nextIdP (htnIdC 0) (htnIdV 2 :: TermExpr) )
                     : [ eNot $ nextIdP (htnIdV n :: TermExpr) (htnIdV $ n + 1) 
@@ -544,7 +547,7 @@ translateMethod m numIds = do
             setPrecondition precond $
             setEffect effect $
             template
-    ensurePred (taskP (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
+    mapM_ ensurePred (taskP maxArity (taskName task) (taskArgs $ taskDef sdom task) (htnIdP 1))
     addAction action
     return ()
     where
