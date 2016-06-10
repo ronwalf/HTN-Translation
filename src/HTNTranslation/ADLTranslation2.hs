@@ -226,7 +226,8 @@ translateProblem template numIds problem =
 ---------------------
 
 translateDomain :: 
-    ( HasName a, HasName b
+    ( MonadPlus m
+    , HasName a, HasName b
     , HasRequirements a, HasRequirements b
     , HasTypes (TypedTypeExpr) a, HasTypes (TypedTypeExpr) b
     , HasConstants TypedConstExpr a, HasConstants TypedConstExpr b
@@ -239,20 +240,16 @@ translateDomain ::
     , HasDerived (TypedPredicateExpr, Expr g) b
     , Atomic TermExpr :<: g, Not :<: g, And :<: g
     , Exists TypedVarExpr :<: g, ForAll TypedVarExpr :<: g
-    ) => b -> template -> a -> [action -> StateT (b, TranslationData a template) Maybe ()] -> b
-translateDomain domTemplate actionTemplate dom transl =
+    ) => b -> template -> a -> [action -> StateT (b, TranslationData a template) m ()] -> m b
+translateDomain domTemplate actionTemplate dom transl = {-# SCC "translateDomain" #-}
     let
-        copy = 
-            domainSetup domTemplate dom
+        copy = domainSetup domTemplate dom
         tstate = (copy, TranslationData dom actionTemplate)
-        translated =
-            fst $
-            fromJust $
-            flip execStateT tstate$
-            mapM_ (\a -> msum $ map (\trans -> trans a ) transl) $
-            getActions dom
     in
-    translated
+    liftM fst $
+    flip execStateT tstate $
+    mapM_ (\a -> msum $ map ({-# SCC "msum-transl" #-} ($a)) transl) $
+    getActions dom
 
 -- |Identify which tasks have successors (and thus need to be tail recursive)
 tasksWithSuccessors :: forall action domain .
@@ -344,6 +341,7 @@ translateDummy ::
 translateDummy m = do
     template <- getTemplate
     addAction $ setName (getName m) template
+    fail "Dummy translator reached"
     
 
 translateUncontrolled :: forall m dom sdom template action param pre eff.
@@ -357,7 +355,7 @@ translateUncontrolled :: forall m dom sdom template action param pre eff.
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
      HasTaskLists TermExpr action)
     => action -> m ()
-translateUncontrolled m = do
+translateUncontrolled m = {-# SCC "translateUncontrolled" #-} do
     guard $ isNothing $ getTaskHead m 
     guard $ null $ getTaskLists m 
     template <- getTemplate
@@ -390,7 +388,7 @@ translateAction :: forall m dom sdom template action pre eff.
      HasTaskHead [StdTaskDef] sdom
      )
     => action -> m ()
-translateAction m = do
+translateAction m = {-# SCC "translateAction" #-} do
     guard $ isJust $ getTaskHead m
     guard $ null $ getTaskLists m
     let name = if null $ getEffect m
@@ -453,7 +451,7 @@ translateMethod1 :: forall m dom sdom template action pre eff.
      HasTaskHead [StdTaskDef] sdom
      )
     => action -> m ()
-translateMethod1 m = do
+translateMethod1 m = {-# SCC "translateMethod1" #-} do
     guard $ isJust $ getTaskHead m
     guard $ (== 1) $ length $ enumerateTasks m
     template <- getTemplate
@@ -502,14 +500,15 @@ translateMethod :: forall m dom sdom template action pre eff.
      HasTaskHead [StdTaskDef] sdom
      )
     => action -> m ()
-translateMethod m = do
+translateMethod m = {-# SCC "translateMethod" #-} do
     guard $ isJust $ getTaskHead m
     guard $ not $ null $ getTaskLists m
     template <- getTemplate
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m 
     let lastTask = findLastTask m 
-    when (isNothing lastTask) $ fail $ "Method " ++ getName m ++ " has no last task (can't use SRIPS translation)"
+    --when (isNothing lastTask) $ 
+    --    fail $ "Method " ++ getName m ++ " has no last task (can't use STRIPS translation)"
     let tasks = taskNums lastTask $ reverse $ enumerateTasks m
     let hid = htnIdV 1
     let alloc = 
