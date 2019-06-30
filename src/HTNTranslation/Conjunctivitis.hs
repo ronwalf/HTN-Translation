@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC
-    -fcontext-stack=30
+    -freduction-depth=30
     -Wall
   #-}
 {-# LANGUAGE
@@ -76,7 +76,7 @@ instance (Atomic t :<: f, Atomic t :<: g) => ExistentialEliminator (Atomic t) f 
     existsElim _ (Atomic p tl) = return $ eAtomic p tl
 
 -- instance (Not :<: f, Not :<: g) => ExistentialEliminator Not f g where
---    existsElim prefix (Not e) = existsElim 
+--    existsElim prefix (Not e) = existsElim
 
 -- nnf helper class (modified for FD-style FDNNF (no ForAll)
 -- fdnnf' takes a bool arg, False for negated, True for not-negated.
@@ -107,4 +107,3 @@ instance (And :<: g, Or :<: g, FDNNF g g) => FDNNF Or g where
 instance (Exists t :<: g, Not :<: g, FDNNF g g) => FDNNF (Exists t) g where
     fdnnf' True (Exists vl (In e)) = eExists vl $ fdnnf' True e
     fdnnf' False (Exists vl (In e)) = eNot $ eExists vl $ fdnnf' True e
-

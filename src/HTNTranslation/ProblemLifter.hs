@@ -1,11 +1,12 @@
 {-# OPTIONS_GHC
-    -fcontext-stack=30
+    -freduction-depth=30
     -Wall
 #-}
 {-# LANGUAGE
     FlexibleContexts,
     FlexibleInstances,
     MultiParamTypeClasses,
+    OverloadedStrings,
     TypeOperators,
     UndecidableInstances
     #-}
@@ -14,13 +15,14 @@ module HTNTranslation.ProblemLifter (
 ) where
 
 import Data.Maybe
+import Data.Text (Text, append, pack)
 
 import HTNTranslation.HTNPDDL
 
 class Functor f => AtomicFinder t f where
     --atomicFinder :: f [Expr (Atomic t)]-> [Expr (Atomic t)]
     atomicFinder :: f [t] -> [t]
-instance (AtomicFinder t f, AtomicFinder t g) 
+instance (AtomicFinder t f, AtomicFinder t g)
     => AtomicFinder t (f :+: g) where
     atomicFinder (Inl x) = atomicFinder x
     atomicFinder (Inr y) = atomicFinder y
@@ -50,8 +52,8 @@ findAtomics = foldExpr atomicFinder
 
 
 class AtomicRenamer g f where
-    atomicRenamer :: (String -> String) -> f (Expr g) -> Expr g
-instance (AtomicRenamer h f, AtomicRenamer h g) 
+    atomicRenamer :: (Text -> Text) -> f (Expr g) -> Expr g
+instance (AtomicRenamer h f, AtomicRenamer h g)
     => AtomicRenamer h (f :+: g) where
     atomicRenamer t (Inl x) = atomicRenamer t x
     atomicRenamer t (Inr y) = atomicRenamer t y
@@ -74,7 +76,7 @@ instance (:<:) Preference f => AtomicRenamer f Preference where
     atomicRenamer _ (Preference n e) = ePreference n e
 
 
-renameAtomics :: (Functor g, AtomicRenamer g g) => (String -> String) -> Expr g -> Expr g
+renameAtomics :: (Functor g, AtomicRenamer g g) => (Text -> Text) -> Expr g -> Expr g
 renameAtomics h = foldExpr (atomicRenamer h)
 
 
@@ -94,7 +96,7 @@ instance ConstFinder f Function where
 findConst :: (Functor f, Functor g, ConstFinder g f) => Expr f -> Maybe (Expr g)
 findConst = foldExpr constFinder
 
-constAtomic :: (Functor f, Functor g, Functor h, ConstFinder g f, 
+constAtomic :: (Functor f, Functor g, Functor h, ConstFinder g f,
     Atomic (Expr g) :<: h) =>
     Expr g -> Expr (Atomic (Expr f)) -> Maybe (Expr h)
 constAtomic constTemplate (In (Atomic p tl)) =
@@ -113,12 +115,12 @@ liftProblem :: (HasTaskLists a problem,
     AtomicFinder (Expr PDDLAtom) g,
     AtomicRenamer g g
     ) => [Expr (Atomic a)] -> problem -> problem
-    
+
 liftProblem tasks problem =
-    
-    let 
+
+    let
         atomicGoals =
-            maybe [] (findAtomics . renameAtomics ("goal_"++)) (getGoal problem)
+            maybe [] (findAtomics . renameAtomics (append "goal_")) (getGoal problem)
             :: [Expr PDDLAtom]
         initGoals =
             getInitial problem
@@ -126,5 +128,4 @@ liftProblem tasks problem =
     in
     setInitial initGoals $
     setTaskLists (flip map tasks $ \t -> (Nothing, [t])) $
-    problem 
-
+    problem

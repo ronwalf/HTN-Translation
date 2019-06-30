@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC
-    -fcontext-stack=30
+    -freduction-depth=30
   #-}
 {-# LANGUAGE
     DeriveDataTypeable,
@@ -7,10 +7,10 @@
     FlexibleInstances,
     FunctionalDependencies,
     MultiParamTypeClasses,
-    OverlappingInstances, 
+    OverloadedStrings,
     RankNTypes,
     ScopedTypeVariables,
-    StandaloneDeriving, 
+    StandaloneDeriving,
     TypeOperators,
     TypeSynonymInstances
   #-}
@@ -22,10 +22,10 @@ module HTNTranslation.HTNPDDL (
     HProblem(..), emptyHProblem,
     Method(..), StandardMethod, defaultMethod,
     TaskHead(..), HasTaskHead, getTaskHead, setTaskHead,
-    TaskList, TaskLists, TaskConstraint, TaskConstraints, 
+    TaskList, TaskLists, TaskConstraint, TaskConstraints,
     HasTaskLists(..), HasTaskConstraints(..),
     taskName, taskArgs, StdTask, StdTaskHead, StdTaskDef,
-    enumerateTasks, numberTasks,
+    enumerateTasks, numberTasks, listTaskNames,
     findFirstTask, findLastTask, findLastTasks, findNextTasks, findPrevTasks,
     parseHTNPDDL, parseHTNProblem,
     htnDescLexer, taskConstraintParser, taskListParser,
@@ -35,12 +35,16 @@ import Control.Monad.State
 import Data.List
 import Data.Generics (Data, Typeable)
 import Data.Maybe
+import Data.Text (Text, cons, pack)
+import Data.Text.Prettyprint.Doc
 import Text.ParserCombinators.Parsec hiding (space)
 import qualified Text.ParserCombinators.Parsec.Token as T
-import Text.PrettyPrint
 
 import Planning.PDDL.PDDL3_0
 import Planning.PDDL.Parser
+
+prettyT :: Text -> Doc ann
+prettyT = pretty
 
 data HDomain a b g = HDomain
     Name
@@ -67,28 +71,29 @@ instance (Data a, Data b, Data g) => HasDerived (TypedPredicateExpr, g) (HDomain
 instance (Data a, Data b, Data g) => HasActions b (HDomain a b g)
 instance (Data a, Data b, Data g, PDDLDoc a, PDDLDoc b, PDDLDoc g) =>
     PDDLDoc (HDomain a b g) where
-    pddlDoc domain = parens $ ($$) (text "define") $ vcat $
-        parens (text "domain" <+> text (getName domain)) :
+    pddlDoc domain = parens $ align $ vcat $
+        prettyT "define" :
+        parens (prettyT "domain" <+> prettyT (getName domain)) :
          -- Requirement strings are prefixed with ':'
-        (if (null $ getRequirements domain) then empty else parens
+        (if (null $ getRequirements domain) then mempty else parens
             (sep $
-             map (text . (':':)) $
-             "requirements" : getRequirements domain)) :        
-        docList (parens . sep . (text ":types" :) . (:[]) . pddlDoc) (getTypes domain) :
-        docList (parens . sep . (text ":predicates" :) . map pddlDoc) (getPredicates domain) :
-        docList (parens . sep . (text ":tasks" :) . map pddlDoc) (getTaskHead domain) :
+             map (prettyT . (cons ':')) $
+             "requirements" : getRequirements domain)) :
+        docList (parens . sep . (prettyT ":types" :) . (:[]) . pddlDoc) (getTypes domain) :
+        docList (parens . sep . (prettyT ":predicates" :) . map pddlDoc) (getPredicates domain) :
+        docList (parens . sep . (prettyT ":tasks" :) . map pddlDoc) (getTaskHead domain) :
         space :
         intersperse space (
         (flip map (getDerived domain) (\(p,b) ->
             parens $ sep $
-              [ text ":derived"
+              [ prettyT ":derived"
               , pddlDoc p
               , pddlDoc b ]))
           ++ (map pddlDoc $ getActions domain))
 
 instance (Data a, Data b, Data g, PDDLDoc a, PDDLDoc b, PDDLDoc g) => Show (HDomain a b g) where
     show domain = show $ pddlDoc domain
-    
+
 emptyHDomain :: forall a b g. HDomain a b g
 emptyHDomain = HDomain
     (Name "empty")
@@ -131,7 +136,7 @@ instance (Data a, Data b, Data c, Data t) => HasTaskConstraints (HProblem a b c 
 instance (Data a, Data b, Data c, Data t) => HasGoal b (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasConstraints c (HProblem a b c t)
 
---instance 
+--instance
 --    (Data (Expr a), Data (Expr b), Data (Expr c),
 --     PDDLDocExpr a, PDDLDocExpr b, PDDLDocExpr c) =>
 --    Show (HProblem (Expr a) (Expr b) (Expr c)) where
@@ -139,19 +144,19 @@ instance (Data a, Data b, Data c, Data t,
         PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDocExpr (Atomic t)) =>
         PDDLDoc (HProblem a b c t) where
     pddlDoc prob = parens $ sep $
-        text "define" :
-        (parens $ text "problem" <+> (text $ getName prob)) :
-        (parens $ text ":domain" <+> (text $ getDomainName prob)) :
-        (if null $ getRequirements prob then empty else 
-           (parens $ sep $ text ":requirements" : map (text . (':':)) (getRequirements prob))) :
-        docList (parens . sep . (text ":objects" :) . (:[]) . pddlDoc) (getConstants prob) :
-        docList (parens . sep . (text ":init" :) . map pddlDoc) (getInitial prob) :
-        docMaybe (parens . sep . (text ":goal" :) . (:[]) . pddlDoc) (getGoal prob) :
-        docMaybe (parens . sep . (text ":constraints" :) . (:[]) . pddlDoc) (getConstraints prob) :
+        prettyT "define" :
+        (parens $ prettyT "problem" <+> (prettyT $ getName prob)) :
+        (parens $ prettyT ":domain" <+> (prettyT $ getDomainName prob)) :
+        (if null $ getRequirements prob then mempty else
+           (parens $ sep $ prettyT ":requirements" : map (prettyT . (cons ':')) (getRequirements prob))) :
+        docList (parens . sep . (prettyT ":objects" :) . (:[]) . pddlDoc) (getConstants prob) :
+        docList (parens . sep . (prettyT ":init" :) . map pddlDoc) (getInitial prob) :
+        docMaybe (parens . sep . (prettyT ":goal" :) . (:[]) . pddlDoc) (getGoal prob) :
+        docMaybe (parens . sep . (prettyT ":constraints" :) . (:[]) . pddlDoc) (getConstraints prob) :
         map (parens . tasklist) (getTaskLists prob)
-        ++ [docList (parens . (text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints prob)]
-       
-    
+        ++ [docList (parens . (prettyT ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints prob)]
+
+
 emptyHProblem :: forall a b c t. HProblem a b c t
 emptyHProblem = HProblem
     (Name "empty")
@@ -173,9 +178,9 @@ class (Data a, Data f) => HasTaskHead f a | a -> f where
     setTaskHead :: f -> a -> a
     setTaskHead h r = fromJust $ greplace r (TaskHead h)
 
-type TaskList a = (Maybe String, [Expr (Atomic a)])
-type NumberedTaskList a = (Maybe String, [(Int, Expr (Atomic a))])
-taskName :: Expr (Atomic t) -> String
+type TaskList a = (Maybe Text, [Expr (Atomic a)])
+type NumberedTaskList a = (Maybe Text, [(Int, Expr (Atomic a))])
+taskName :: Expr (Atomic t) -> Text
 taskName (In (Atomic p _)) = p
 taskArgs :: Expr (Atomic t) -> [t]
 taskArgs (In (Atomic _ al)) = al
@@ -188,22 +193,22 @@ class (Data a, Data f) => HasTaskLists a f | f -> a where
     getTaskLists = filter (not . null . snd) . unTaskLists . fromJust . gfind
     setTaskLists :: [TaskList a] -> f -> f
     setTaskLists tl f = fromJust $ greplace f (TaskLists tl)
-tasklist :: (PDDLDocExpr (Atomic a)) => TaskList a -> Doc
-tasklist (Just name, tl) = text ":tasks" <+> parens (sep $
-    (text name) : map pddlDoc tl)
-tasklist (Nothing, tl) = text ":tasks" <+> parens (sep $
+tasklist :: (PDDLDocExpr (Atomic a)) => TaskList a -> Doc ann
+tasklist (Just name, tl) = prettyT ":tasks" <+> parens (sep $
+    (prettyT name) : map pddlDoc tl)
+tasklist (Nothing, tl) = prettyT ":tasks" <+> parens (sep $
     map pddlDoc tl)
 
- 
+
 -- Courtesy of Saizan (freenode #haskell)
 numberTasks :: HasTaskLists a m => m -> [NumberedTaskList a]
 numberTasks m =
-    let next = do 
+    let next = do
         n <- get
         put $ n+1
         return n
-    in 
-    flip evalState 0 $ 
+    in
+    flip evalState 0 $
     flip mapM (getTaskLists m) $ \(name, tasks) -> do
         tasks' <- flip mapM tasks $ \x -> do
             n <- next
@@ -213,16 +218,20 @@ numberTasks m =
 enumerateTasks :: HasTaskLists a m => m -> [(Int, Expr (Atomic a))]
 enumerateTasks = concatMap snd . numberTasks
 
-findTaskLists :: HasTaskLists a m => m -> String -> [[(Int, Expr (Atomic a))]]
-findTaskLists m name = 
-    map snd $ 
-    filter ((== Just (name)) . fst) $ 
-    numberTasks m
-    
---findPrecursor :: (HasTaskLists m, HasTaskConstraints m) =>
---    Int -> m -> [ 
+listTaskNames :: HasTaskLists a m => m -> [Text]
+listTaskNames = nub . map (taskName . snd) . enumerateTasks
 
-type TaskConstraint = (String, String)
+
+findTaskLists :: HasTaskLists a m => m -> Text -> [[(Int, Expr (Atomic a))]]
+findTaskLists m name =
+    map snd $
+    filter ((== Just (name)) . fst) $
+    numberTasks m
+
+--findPrecursor :: (HasTaskLists m, HasTaskConstraints m) =>
+--    Int -> m -> [
+
+type TaskConstraint = (Text, Text)
 data TaskConstraints = TaskConstraints [TaskConstraint] deriving (Data, Eq, Typeable)
 unTaskConstraints :: TaskConstraints -> [TaskConstraint]
 unTaskConstraints (TaskConstraints tc) = tc
@@ -232,8 +241,8 @@ class (Data f) => HasTaskConstraints f where
     setTaskConstraints :: [TaskConstraint] -> f -> f
     setTaskConstraints tc f = fromJust $ greplace f (TaskConstraints tc)
 
-tconstraint :: TaskConstraint -> Doc
-tconstraint (t1, t2) = parens $ text t1 <+> text t2
+tconstraint :: TaskConstraint -> Doc ann
+tconstraint (t1, t2) = parens $ pretty t1 <+> pretty t2
 
 deleteAll :: Eq c => c -> [c] -> [c]
 deleteAll c = filter (/= c)
@@ -244,24 +253,24 @@ normalizedTaskConstraints m =
     let
         constraints :: [TaskConstraint]
         constraints = getTaskConstraints m
-        names :: [String]
+        names :: [Text]
         names = nub $
-            map fst constraints 
+            map fst constraints
             ++ map snd constraints
-        used :: [String]
+        used :: [Text]
         used = filter (\n -> or $ map (not . null) $ findTaskLists m n) names
-        unused :: [String]
+        unused :: [Text]
         unused = names \\ used
     in
     expand unused constraints
     where
-        expand :: [String] -> [TaskConstraint] -> [TaskConstraint]
+        expand :: [Text] -> [TaskConstraint] -> [TaskConstraint]
         expand [] tc = tc
         expand (u : ul) tc =
             expand ul $ -- Continue expansion
             replace u $ -- Replace left and right occurances
             deleteAll (u,u) tc -- Remove self constraints (OK since empty)
-        replace :: String -> [TaskConstraint] -> [TaskConstraint]
+        replace :: Text -> [TaskConstraint] -> [TaskConstraint]
         replace u tc =
             let
                 l = map fst $ filter ((== u) . snd) tc
@@ -270,7 +279,7 @@ normalizedTaskConstraints m =
             [(c1,c2) | c1 <- l, c2 <- r] -- Cross product of constraints
             ++ filter (\(c1,c2) -> c1 == u || c2 == u) tc
 
-                
+
 
 findFirstTask :: (HasTaskLists a m, HasTaskConstraints m) =>
     m -> Maybe (Int, Expr (Atomic a))
@@ -290,7 +299,7 @@ findLastTasks m =
     map (last . snd) $
     winnow (normalizedTaskConstraints m) (numberTasks m)
     where
-        winnow :: [(String, String)] -> [(Maybe String, [(Int, Expr (Atomic a))])] -> [(Maybe String, [(Int, Expr (Atomic a))])]
+        winnow :: [(Text, Text)] -> [(Maybe Text, [(Int, Expr (Atomic a))])] -> [(Maybe Text, [(Int, Expr (Atomic a))])]
         winnow [] tl = tl
         winnow ((tlname, _) : cl) tl =
             winnow cl $
@@ -299,7 +308,7 @@ findLastTasks m =
 findLastTask :: (HasTaskLists a m, HasTaskConstraints m) =>
     m -> Maybe (Int, Expr (Atomic a))
 findLastTask m =
-    case findLastTasks m of 
+    case findLastTasks m of
         [t] -> Just t
         _ -> Nothing
 
@@ -312,13 +321,13 @@ findPrevTasks m n =
     case tcontext tasks of
     Left t -> [t]
     Right Nothing -> []
-    Right (Just tlname) -> 
-        concatMap (\(prevname, _) -> map (last . snd) $ 
+    Right (Just tlname) ->
+        concatMap (\(prevname, _) -> map (last . snd) $
             filter ((== Just prevname) . fst) tasks) $
         filter ((== tlname) . snd) $
         normalizedTaskConstraints m
     where
-        tcontext :: [(Maybe String, [(Int, Expr (Atomic a))])] -> Either (Int, Expr (Atomic a)) (Maybe String)
+        tcontext :: [(Maybe Text, [(Int, Expr (Atomic a))])] -> Either (Int, Expr (Atomic a)) (Maybe Text)
         tcontext [] = Right Nothing
         tcontext ((_, []) : tl) = tcontext tl
         tcontext ((name, [(tn, _)]) : tl)
@@ -338,27 +347,27 @@ findNextTasks m n =
     case tcontext tasks of
     Left t -> [t]
     Right Nothing -> []
-    Right (Just tlname) -> 
-        concatMap (\(_, nextname) -> map (head . snd) $ 
+    Right (Just tlname) ->
+        concatMap (\(_, nextname) -> map (head . snd) $
             filter (not . null . snd) $
             filter ((== Just nextname) . fst) tasks) $
         filter ((== tlname) . fst) $
         normalizedTaskConstraints m
     where
         -- Return the next task in the list or the string associated with its list
-        tcontext :: [(Maybe String, [(Int, Expr (Atomic a))])] -> Either (Int, Expr (Atomic a)) (Maybe String)
+        tcontext :: [(Maybe Text, [(Int, Expr (Atomic a))])] -> Either (Int, Expr (Atomic a)) (Maybe Text)
         tcontext [] = Right Nothing
         tcontext ((_, []) : tl) = tcontext tl
         tcontext ((name, [(tn, _)]) : tl)
             | tn == n = Right name
             | otherwise = tcontext tl
         tcontext ((name, (pn, _) : tnt : ttl) : tl)
-            | pn == n = Left tnt 
+            | pn == n = Left tnt
             | otherwise = tcontext $ (name, tnt : ttl) : tl
-            
+
 
 type StdTask = Expr PDDLAtom
-type StdTaskHead = Maybe StdTask 
+type StdTaskHead = Maybe StdTask
 type StdTaskDef = Expr (Atomic TypedVarExpr)
 
 
@@ -391,42 +400,42 @@ defaultMethod = Method (Name "")
     (TaskLists [])
     (TaskConstraints [])
 
-instance (Data p, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc [t], PDDLDoc ep, PDDLDoc e) 
-    => PDDLDoc (Method (Maybe String, p) ([t], Maybe ep, [e])) where
+instance (Data p, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc [t], PDDLDoc ep, PDDLDoc e)
+    => PDDLDoc (Method (Maybe Text, p) ([t], Maybe ep, [e])) where
     pddlDoc m = parens $ sep  ([
-        (if null (getTaskLists m) then text ":action" else text ":method") <+> text (getName m),
-        text ":parameters" <+> parens (pddlDoc $ getParameters m),
-        docMaybe ((text ":task" <+>) . pddlDoc) (getTaskHead m),
-        docList ((text ":precondition" <+>) . andDoc prefDoc) $ getPrecondition m,
-        docList ((text ":effect" <+>) . andDoc id . concatMap effectDoc) $ getEffect m]
+        (if null (getTaskLists m) then prettyT ":action" else prettyT ":method") <+> prettyT (getName m),
+        prettyT ":parameters" <+> parens (pddlDoc $ getParameters m),
+        docMaybe ((prettyT ":task" <+>) . pddlDoc) (getTaskHead m),
+        docList ((prettyT ":precondition" <+>) . andDoc prefDoc) $ getPrecondition m,
+        docList ((prettyT ":effect" <+>) . andDoc id . concatMap effectDoc) $ getEffect m]
         ++ map tasklist (getTaskLists m)
-        ++ [docList ((text ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints m)])
+        ++ [docList ((prettyT ":ordering" <+>) . parens . sep . map tconstraint) (getTaskConstraints m)])
         where
-            andDoc :: forall a . (a -> Doc) -> [a] -> Doc
+            andDoc :: forall a ann. (a -> Doc ann) -> [a] -> Doc ann
             andDoc f [t] = f t
             andDoc f tl = parens $ sep $
-                text "and"
+                prettyT "and"
                 : map f tl
-            prefDoc :: (Maybe String, p) -> Doc
+            prefDoc :: (Maybe Text, p) -> Doc ann
             prefDoc (Nothing, p) = pddlDoc p
             prefDoc (Just n, p) = parens $ sep [
-                text "preference",
-                text n,
+                prettyT "preference",
+                prettyT n,
                 pddlDoc p ]
-            effectDoc :: ([t], Maybe ep, [e]) -> [Doc]
+            effectDoc :: ([t], Maybe ep, [e]) -> [Doc ann]
             effectDoc ([], ep, el) = condDoc ep el
             effectDoc (tl, ep, el) = [parens $ sep [
-                text "forall",
+                prettyT "forall",
                 parens (pddlDoc tl),
                 andDoc id $ condDoc ep el]]
-            condDoc :: Maybe ep -> [e] -> [Doc]
+            condDoc :: Maybe ep -> [e] -> [Doc ann]
             condDoc Nothing el = map pddlDoc el
             condDoc (Just ep) el = [parens $ sep [
-                text "when",
+                prettyT "when",
                 pddlDoc ep,
                 andDoc pddlDoc el ]]
-                
-        
+
+
 
 type StandardMethod = Method PDDLPrecond PDDLEffect
 
@@ -440,8 +449,8 @@ htnDescLanguage = pddlDescLanguage {
 htnDescLexer :: forall st. T.TokenParser st
 htnDescLexer = T.makeTokenParser htnDescLanguage
 
-htnParser :: GenParser Char (StandardHTNDomain) (StandardHTNDomain)
-htnParser = let 
+htnParser :: CharParser (StandardHTNDomain) (StandardHTNDomain)
+htnParser = let
         constraintP = constraintGDParser pddlExprLexer
         prefP = prefListParser pddlExprLexer (gdParser pddlExprLexer :: CharParser StandardHTNDomain GDExpr)
         effectP = ucEffectParser pddlExprLexer
@@ -458,10 +467,10 @@ htnParser = let
         (methodParser htnDescLexer prefP effectP)
 
 
-htnProblemParser :: GenParser Char StandardHTNProblem StandardHTNProblem
-htnProblemParser = 
+htnProblemParser :: CharParser StandardHTNProblem StandardHTNProblem
+htnProblemParser =
     let
-        stateP = T.parens pddlExprLexer $ initLiteralParser pddlExprLexer :: CharParser StandardHTNProblem InitLiteralExpr 
+        stateP = T.parens pddlExprLexer $ initLiteralParser pddlExprLexer :: CharParser StandardHTNProblem InitLiteralExpr
         goalP = prefGDParser pddlExprLexer :: CharParser StandardHTNProblem PreferenceGDExpr
         constraintP = constraintGDParser pddlExprLexer :: CharParser StandardHTNProblem ConstraintGDExpr
         infoP =
@@ -491,19 +500,19 @@ hDomainInfoParser dlex condParser =
 
 methodParser :: forall st p e .
     (HasActions (Method p e) st,
-    Data p, Data e) => 
-    T.TokenParser st -> 
-    CharParser st [p] -> 
+    Data p, Data e) =>
+    T.TokenParser st ->
+    CharParser st [p] ->
     CharParser st [e] ->
     CharParser st ()
 methodParser mylex condParser effParser = do
-    let 
+    let
         infoParser :: CharParser st (Method p e -> Method p e)
         infoParser = methodInfoParser mylex condParser effParser
     T.reserved mylex ":method" <|> T.reserved mylex ":action"
     name <- T.identifier mylex
     updates <- many infoParser
-    let method = foldl (\a t -> t a) (setName name defaultMethod) updates
+    let method = foldl (\a t -> t a) (setName (pack name) defaultMethod) updates
     updateState (\d -> setActions (method : getActions d) d)
 
 methodInfoParser :: (HasParameters TypedVarExpr a,
@@ -525,7 +534,7 @@ methodInfoParser mylex condParser effParser =
     taskListParser mylex (termParser mylex)
     <|>
     taskConstraintParser mylex
-    
+
 
 taskHeadParser :: HasTaskHead (Maybe (Expr PDDLAtom)) a =>
     T.TokenParser st -> CharParser st (a -> a)
@@ -533,7 +542,7 @@ taskHeadParser mylex = do
     try $ T.reserved mylex ":task"
     task <- maybeParser mylex $ taskParser mylex (termParser mylex)
     return $ setTaskHead task
-    
+
 taskListParser :: HasTaskLists a m =>
     T.TokenParser st -> CharParser st a -> CharParser st (m -> m)
 taskListParser mylex argParser = do
@@ -541,8 +550,8 @@ taskListParser mylex argParser = do
     T.parens mylex $ do
         name <- optionMaybe (try $ T.identifier mylex)
         tasks <- many $ T.parens mylex $ taskParser mylex argParser
-        return $ \m -> setTaskLists ((name, tasks) : getTaskLists m) m
-        
+        return $ \m -> setTaskLists ((fmap pack name, tasks) : getTaskLists m) m
+
 taskConstraintParser :: HasTaskConstraints a =>
     T.TokenParser st -> CharParser st (a -> a)
 taskConstraintParser mylex = do
@@ -551,8 +560,8 @@ taskConstraintParser mylex = do
         orderings <- many $ T.parens mylex $ do
             t1 <- T.identifier mylex
             t2 <- T.identifier mylex
-            return (t1, t2)
-        return $ \m -> setTaskConstraints 
+            return (pack t1, pack t2)
+        return $ \m -> setTaskConstraints
             (orderings ++ getTaskConstraints m) m
 
 
@@ -560,7 +569,7 @@ taskParser :: T.TokenParser st -> CharParser st a -> CharParser st (Expr (Atomic
 taskParser mylex argParser = do
     name <- T.identifier mylex
     terms <- many argParser
-    return $ eAtomic name terms
+    return $ eAtomic (pack name) terms
 
 parseHTNPDDL :: SourceName -> String -> Either ParseError StandardHTNDomain
 parseHTNPDDL source input =
@@ -569,5 +578,3 @@ parseHTNPDDL source input =
 parseHTNProblem :: SourceName -> String -> Either ParseError StandardHTNProblem
 parseHTNProblem source input =
     runParser htnProblemParser emptyHProblem source input
-
-   

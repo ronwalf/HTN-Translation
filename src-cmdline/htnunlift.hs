@@ -1,11 +1,11 @@
 {-# OPTIONS_GHC
-    -fcontext-stack=30
+    -freduction-depth=30
     -Wall
   #-}
 {-# LANGUAGE
     FlexibleContexts,
     FlexibleInstances,
-    OverlappingInstances,
+    OverloadedStrings,
     RankNTypes,
     ScopedTypeVariables,
     TypeOperators,
@@ -17,6 +17,8 @@ import Control.Monad (liftM)
 import Data.Function (on)
 import Data.List
 import Data.Maybe
+import Data.Text (Text, append, pack)
+import qualified Data.Text as DT
 --import Debug.Trace
 import System.Environment
 import System.Exit
@@ -32,35 +34,35 @@ import Planning.Util (cfConversion, findAtoms, findFreeVars, FreeVarsFindable, l
 import HTNTranslation.HTNPDDL
 import HTNTranslation.ProgressionBounds (findReachableTasks, findMethods)
 
-nunidString :: String
+nunidString :: Text
 nunidString = "nunlift_id"
 nunid :: (Atomic t :<: f) => t -> t -> Expr f
 nunid x y = eAtomic nunidString [x,y]
-nuntmemPrefix :: String
+nuntmemPrefix :: Text 
 nuntmemPrefix = "nunlift_mem_of_"
-nuntmem :: (Atomic t :<: f) => t -> String -> Expr f
-nuntmem x t = eAtomic (nuntmemPrefix ++ t) [x]
+nuntmem :: (Atomic t :<: f) => t -> Text -> Expr f
+nuntmem x t = eAtomic (append nuntmemPrefix t) [x]
 
 class Functor f => SpecialPredsFindable f where
-    findNunPreds' :: f (Bool, [String]) -> (Bool, [String])
-findNunPreds :: SpecialPredsFindable f => Expr f -> (Bool, [String])
-findNunPreds e = 
+    findNunPreds' :: f (Bool, [Text]) -> (Bool, [Text])
+findNunPreds :: SpecialPredsFindable f => Expr f -> (Bool, [Text])
+findNunPreds e =
     let (i, t) = foldExpr findNunPreds' e in
     (i, nub $ sort $ t)
 
-findAllSpecials :: StandardHTNDomain -> (Bool, [String])
-findAllSpecials dom = 
+findAllSpecials :: StandardHTNDomain -> (Bool, [Text])
+findAllSpecials dom =
     foldr (\(xi, xt) (yi, yt) -> (xi || yi, xt ++ yt)) (False, []) $
-    map (findNunPreds . snd) $ 
+    map (findNunPreds . snd) $
     concatMap getPrecondition $
-    getActions dom 
+    getActions dom
 
 instance (SpecialPredsFindable f, SpecialPredsFindable g) => SpecialPredsFindable (f :+: g) where
     findNunPreds' (Inl x) = findNunPreds' x
     findNunPreds' (Inr y) = findNunPreds' y
 
 instance SpecialPredsFindable (Atomic (Expr t)) where
-    findNunPreds' (Atomic p _) = case stripPrefix nuntmemPrefix p of
+    findNunPreds' (Atomic p _) = case DT.stripPrefix nuntmemPrefix p of
             Just t -> (False, [t])
             Nothing -> if (p == nunidString) then (True, []) else (False, [])
 
@@ -78,7 +80,7 @@ instance SpecialPredsFindable Imply where
 
 instance SpecialPredsFindable And where
     findNunPreds' (And el) = foldr (\(xi, xt) (yi, yt) -> (xi || yi, xt ++ yt)) (False, []) el
- 
+
 instance SpecialPredsFindable Or where
     findNunPreds' (Or el) = foldr (\(xi, xt) (yi, yt) -> (xi || yi, xt ++ yt)) (False, []) el
 
@@ -97,14 +99,14 @@ instance FreeVarsFindable t => TypedVarsFindable (Atomic (Expr t)) where
         where
         pvlookup :: Int -> (Expr t) -> [TypedVarExpr]
         pvlookup n t =
-            let types :: [String] = 
+            let types :: [Text] =
                     concatMap (getType . (!! n)) $
                     filter ((> n) . length) $
                     map taskArgs $
                     filter ((==) p . taskName) typeDefs in
             map (flip eTyped types) $ findFreeVars t -- Actually quite wrong if functions are allowed.
-           
-            
+
+
 findAllTypedVars :: TypedVarsFindable f => [TypedPredicateExpr] -> [Expr f] -> [TypedVarExpr]
 findAllTypedVars typeDefs = concatMap retype . groupBy ((==) `on` removeType) . sort . concatMap (findTypedVars typeDefs)
     where
@@ -152,12 +154,12 @@ copyProblem prob =
 trivialConversion :: (Monad m) => LiftedHTNProblem -> m StandardHTNProblem
 trivialConversion prob = do
     taskLists <- mapM convertList $ getTaskLists prob
-    return $ 
+    return $
         setTaskLists taskLists $
         setTaskConstraints (getTaskConstraints prob) $
         copyProblem prob
     where
-    convertList :: (Monad m) => (Maybe String, [Expr (Atomic TermExpr)]) -> m (Maybe String, [Expr (Atomic ConstTermExpr)])
+    convertList :: (Monad m) => (Maybe Text, [Expr (Atomic TermExpr)]) -> m (Maybe Text, [Expr (Atomic ConstTermExpr)])
     convertList (name, tasks) = do
         ctasks <- mapM (\t -> do {(tl :: [ConstTermExpr]) <- mapM cfConversion (taskArgs t); return (eAtomic (taskName t) tl)}) tasks
         return (name, ctasks :: [Expr (Atomic ConstTermExpr)])
@@ -177,13 +179,13 @@ injectionConversion dom lprob =
         dom
     injectMethod :: [TaskList TermExpr] -> [TaskConstraint] -> StandardMethod
     injectMethod taskLists taskConstraints =
-        let 
-            tdefs = 
-                -- (\x -> trace (("TDefs: "++) $ show $ map pddlDoc x) x) $ 
-                getTaskHead dom ++ getPredicates dom 
-            params = 
-                -- (\x -> trace (("Params: " ++) $ show $ pddlDoc x) x) $ 
-                findAllTypedVars tdefs $ 
+        let
+            tdefs =
+                -- (\x -> trace (("TDefs: "++) $ show $ map pddlDoc x) x) $
+                getTaskHead dom ++ getPredicates dom
+            params =
+                -- (\x -> trace (("Params: " ++) $ show $ pddlDoc x) x) $
+                findAllTypedVars tdefs $
                 -- (\x -> trace (("Tasks: " ++) $ show $ map pddlDoc x) x) $
                 concatMap snd taskLists
         in
@@ -197,18 +199,18 @@ injectionConversion dom lprob =
 removeEmptyTypes :: StandardHTNDomain -> StandardHTNProblem -> StandardHTNDomain
 removeEmptyTypes dom prob =
     let
-        usedBaseTypes :: [String] = concatMap getType $ getConstants dom ++ getConstants prob
-        usedTypes :: [String] = nub $ sort $ fst $ last $ 
-                takeWhile (not . null . snd) $ 
-                iterate (\(at, _) -> 
-                    let nt = filter (flip notElem at) $ 
-                             concatMap getType $ 
-                             filter (flip elem at . removeType) $ 
+        usedBaseTypes :: [Text] = concatMap getType $ getConstants dom ++ getConstants prob
+        usedTypes :: [Text] = nub $ sort $ fst $ last $
+                takeWhile (not . null . snd) $
+                iterate (\(at, _) ->
+                    let nt = filter (flip notElem at) $
+                             concatMap getType $
+                             filter (flip elem at . removeType) $
                              getTypes dom
-                    in 
+                    in
                     (at ++ nt, nt))
                 (usedBaseTypes, usedBaseTypes)
-        missingTPNames :: [String] = 
+        missingTPNames :: [Text] =
                 map taskName $
                 filter (or . map (and . (\x -> (not $ null x) : x) . map (flip notElem usedTypes) . getType) . taskArgs) $
                 (getTaskHead dom ++ getPredicates dom)
@@ -231,16 +233,16 @@ removeEmptyTypes dom prob =
 
 compileTypes :: (StandardHTNDomain, StandardHTNProblem) -> (StandardHTNDomain, StandardHTNProblem)
 compileTypes (dom, prob) =
-    ( setTypes [eTyped "POBJ" []]
+    ( setTypes [eTyped ("POBJ" :: Text) []]
       $ setTaskHead utTasks
       $ setPredicates utPreds
       $ setConstants utDConsts
       $ setActions (map utAction $ getActions dom) dom
     , setConstants utConsts $ setInitial utInitial prob )
     where
-    allTypes :: [String]
+    allTypes :: [Text]
     allTypes = nub $ sort $ concatMap (\t -> removeType t : getType t) $ getTypes dom
-    retype :: forall f g . Untypeable f g => Expr f -> Expr (Typed g) 
+    retype :: forall f g . Untypeable f g => Expr f -> Expr (Typed g)
     retype tvar = eTyped (removeType tvar) ["POBJ"]
     utDConsts :: [TypedConstExpr]
     utDConsts = map retype $ getConstants dom
@@ -253,8 +255,8 @@ compileTypes (dom, prob) =
         map (flip eAtomic [eTyped (eVar "x" :: Expr Var) ["POBJ"] :: TypedVarExpr]) allTypes
         ++ (map (\l -> eAtomic (taskName l) (map retype (taskArgs l) :: [TypedVarExpr])) $ getPredicates dom)
     utInitial :: [InitLiteralExpr]
-    utInitial = 
-        (flip concatMap allTypes $ \t -> 
+    utInitial =
+        (flip concatMap allTypes $ \t ->
             map (eAtomic t . (:[]) . (liftE :: Expr Const -> ConstTermExpr) . removeType) $ nub $ sort $ findmems t)
         ++ getInitial prob
     -- Currently ignores all quantification
@@ -263,18 +265,18 @@ compileTypes (dom, prob) =
         setParameters (map retype $ getParameters action) $
         setPrecondition (concat (map paramPreds (getParameters action) ++ [getPrecondition action])) $
         action
-    paramPreds :: TypedVarExpr -> [(Maybe String, GDExpr)]
+    paramPreds :: TypedVarExpr -> [(Maybe Text, GDExpr)]
     paramPreds (In (Typed _ [])) = []
     paramPreds (In (Typed v [t])) = [(Nothing, eAtomic t [liftE v :: TermExpr])]
     paramPreds (In (Typed v tl)) = [(Nothing, eOr $ map (flip eAtomic [liftE v :: TermExpr]) tl)]
 
-    findmems t = 
+    findmems t =
         filter (\c -> t `elem` getType c) (getConstants dom ++ getConstants prob)
-        ++ concatMap (findmems . removeType) 
+        ++ concatMap (findmems . removeType)
                      (filter (elem t . getType) $ getTypes dom)
 
- 
- 
+
+
 
 processSpecials :: (StandardHTNDomain, StandardHTNProblem) -> (StandardHTNDomain, StandardHTNProblem)
 processSpecials (dom, prob) =
@@ -285,22 +287,22 @@ processSpecials (dom, prob) =
     where
     addIdentity :: Bool -> (StandardHTNDomain, StandardHTNProblem) -> (StandardHTNDomain, StandardHTNProblem)
     addIdentity False (dom', prob') = (dom', prob')
-    addIdentity True (dom', prob') = 
+    addIdentity True (dom', prob') =
         ( setPredicates (nunid (eTyped (eVar "x" :: Expr Var) [] :: TypedVarExpr) (eTyped (eVar "y" :: Expr Var) []) : getPredicates dom') dom'
-        , setInitial ([nunid (liftE (removeType i) :: ConstTermExpr) (liftE $ removeType i) 
-                      | i <- getConstants dom' ++ getConstants prob'] 
-                      ++ getInitial prob') 
+        , setInitial ([nunid (liftE (removeType i) :: ConstTermExpr) (liftE $ removeType i)
+                      | i <- getConstants dom' ++ getConstants prob']
+                      ++ getInitial prob')
                      prob')
-    addTypeMem :: (StandardHTNDomain, StandardHTNProblem) -> String -> (StandardHTNDomain, StandardHTNProblem)
+    addTypeMem :: (StandardHTNDomain, StandardHTNProblem) -> Text -> (StandardHTNDomain, StandardHTNProblem)
     addTypeMem (dom', prob') t =
         ( setPredicates (nuntmem (eTyped (eVar "x" :: Expr Var) [] :: TypedVarExpr) t : getPredicates dom') dom'
-        , setInitial 
-            ( map (flip nuntmem t :: ConstTermExpr -> InitLiteralExpr) 
-                  (nub $ sort $ map (liftE . removeType) $ findmems t) 
+        , setInitial
+            ( map (flip nuntmem t :: ConstTermExpr -> InitLiteralExpr)
+                  (nub $ sort $ map (liftE . removeType) $ findmems t)
             ++ getInitial prob') prob')
-    findmems t = 
+    findmems t =
         filter (\c -> t `elem` getType c) (getConstants dom ++ getConstants prob)
-        ++ concatMap (findmems . removeType) 
+        ++ concatMap (findmems . removeType)
                      (filter (elem t . getType) $ getTypes dom)
 
 
@@ -309,8 +311,10 @@ stripUnreachable dom prob =
     setActions (reachable ++ headless) dom
     where
     headless = filter (isNothing . getTaskHead) $ getActions dom
-
-    reachable = concatMap (findMethods dom :: String -> [StandardMethod]) $ findReachableTasks dom prob
+    reachable = 
+        concatMap (findMethods dom :: Text -> [StandardMethod]) $
+        findReachableTasks dom $
+        listTaskNames prob
 
 
 ensurePrimitiveTasks :: StandardHTNDomain -> StandardHTNDomain
@@ -326,19 +330,19 @@ ensurePredicates :: StandardHTNDomain -> StandardHTNProblem -> StandardHTNDomain
 ensurePredicates dom prob = setPredicates (getPredicates dom ++ tpreds) dom
     where
     typedVars :: [TypedVarExpr]
-    typedVars = map (flip eTyped ["POBJ"] . (eVar :: String -> Expr Var) . ('v':) . show) ([1..] :: [Int])
-    definedAtoms :: [String]
+    typedVars = map (flip eTyped ["POBJ"] . (eVar :: Text -> Expr Var) . (append "v") . pack . show) ([1..] :: [Int])
+    definedAtoms :: [Text]
     definedAtoms = ("=":) $ map taskName $ getPredicates dom
-    nameArity :: forall g . Expr (Atomic g) -> (String, Int)
+    nameArity :: forall g . Expr (Atomic g) -> (Text, Int)
     nameArity p = (taskName p, length $ taskArgs p)
-    precondAtoms :: PDDLPrecond -> [(String, Int)]
+    precondAtoms :: PDDLPrecond -> [(Text, Int)]
     precondAtoms = map nameArity . (findAtoms :: GDExpr -> [Expr (Atomic TermExpr)]) . snd
-    effectAtoms :: PDDLEffect -> [(String,Int)]
+    effectAtoms :: PDDLEffect -> [(Text,Int)]
     effectAtoms (_, Just p, e) = (map nameArity (findAtoms p :: [Expr (Atomic TermExpr)])) ++ (effectAtoms ([], Nothing, e))
     effectAtoms (_, Nothing, e) = map nameArity $ concatMap (findAtoms :: EffectDExpr -> [Expr (Atomic TermExpr)]) e
-    actionAtoms :: StandardMethod -> [(String, Int)]
-    actionAtoms action = 
-        concatMap precondAtoms (getPrecondition action) 
+    actionAtoms :: StandardMethod -> [(Text, Int)]
+    actionAtoms action =
+        concatMap precondAtoms (getPrecondition action)
         ++ concatMap effectAtoms (getEffect action)
     tpreds :: [TypedPredicateExpr]
     tpreds = map (\(p,n) -> eAtomic p (take n typedVars)) $
@@ -351,11 +355,11 @@ processProblem :: StandardHTNDomain -> String -> IO ()
 processProblem domain probFile = do
     contents <- readFile probFile
     problem <- errCheck $ parseLiftedHTN probFile contents
-    let (dom',prob') = 
---            (\x -> trace (("Post type removal:\n" ++) $ 
---                show $ pddlDoc $ fst x) x) $ 
-            compileTypes $ (\(d, p) -> (removeEmptyTypes d p, p)) $ 
---            (\x -> trace (("Pre type removal:\n" ++) $ 
+    let (dom',prob') =
+--            (\x -> trace (("Post type removal:\n" ++) $
+--                show $ pddlDoc $ fst x) x) $
+            compileTypes $ (\(d, p) -> (removeEmptyTypes d p, p)) $
+--            (\x -> trace (("Pre type removal:\n" ++) $
 --                show $ pddlDoc $ fst x) x) $
 --            (\x -> trace (("Reachable: " ++ ) $
 --                show $ findReachableTasks (fst x) (snd x)) x) $
@@ -382,7 +386,7 @@ errCheck (Right prob) = return prob
 main :: IO ()
 main = do
     argv <- getArgs
-    (domFile, files) <- case argv of 
+    (domFile, files) <- case argv of
         (dom : files @ (_ : _)) -> do return (dom, files)
         _ -> ioError $ userError "Usage: htnunlift domain.hpddl problem1.hpddl [problem2.hpddl, ...]\nOutputs: d-problem1.hpddl, p-problem1.hpddl, d-problem2.hpddl..."
     domContents <- readFile domFile

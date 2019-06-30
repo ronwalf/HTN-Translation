@@ -7,97 +7,65 @@ module HTNTranslation.ProgressionMin (minProgression) where
 import Data.Function (on)
 import Data.List
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 --import Debug.Trace
 
 import HTNTranslation.HTNPDDL
-import HTNTranslation.ProgressionBounds (findMethods, findReachableTasks)
+import HTNTranslation.ProgressionBounds (findMethods, findReachableTasks')
 
 -- |Provides the minimum progression bound necessary for
-minProgression :: 
+minProgression :: forall action domain problem .
     ( HasName action
     , HasTaskHead (Maybe (Expr PDDLAtom)) action
     , HasTaskLists TermExpr action
     , HasTaskConstraints action
     , HasActions action domain
-    , HasName problem
     , HasTaskLists ConstTermExpr problem
     , HasTaskConstraints problem
-    ) => domain -> problem -> (Int, [(String, Int)])
+    ) => domain -> problem -> (Int, [(Text, Int)])
 minProgression domain problem =
-    (boundsGame bounds problem, bounds)
+    (boundsGame problem bounds, bounds)
     where
+    findM :: Text -> [action]
+    findM = findMethods domain
     bounds = map fst $ snd $
         until (not . fst)
-            (iterateBounds domain) $ 
-        (\lb -> (True, lb)) $ 
-        map (\t -> ((t, maxBound), findMethods domain t)) $
-        findReachableTasks domain problem
+            iterateBounds $
+        (\lb -> (True, lb)) $
+        map (\t -> ((t, maxBound), findM t :: [action])) $
+        findReachableTasks'
+            (concatMap listTaskNames . findM) $
+        listTaskNames problem
+    iterateBounds :: (Bool, [((Text, Int), [action])]) -> (Bool, [((Text, Int), [action])])
+    iterateBounds (_, cbounds) = {-# SCC "iterateBounds" #-}
+        foldl (\(changed, l) ((t,tprevb),actions) ->
+                let tnextb = foldl reboundAction tprevb $ filter (isPlausible tprevb) actions in
+                (changed || tnextb < tprevb, ((t, tnextb), actions) : l))
+            (False, []) cbounds
+        where
+        bounds :: [(Text, Int)]
+        bounds = map fst cbounds
+        reboundAction :: Int -> action -> Int
+        reboundAction bound action =
+            min bound $ boundsGame action bounds
+        -- only consider rebounding with plausible methods (subtasks all have lower bounds)
+        isPlausible :: Int -> action -> Bool
+        isPlausible bound method = and $
+            map ((< bound) . taskBound bounds . taskName . snd) $
+            (enumerateTasks method :: [(Int, Expr PDDLAtom)])
     
-iterateBounds :: forall action a domain . 
-    ( HasName action
-    , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists a action
-    , HasTaskConstraints action
-    , HasActions action domain
-    ) => domain -> (Bool, [((String, Int), [action])]) -> (Bool, [((String, Int), [action])])
-iterateBounds domain (_, cbounds) = {-# SCC "iterateBounds" #-}
-    foldl (\(changed, l) ((t,tprevb),actions) ->
-            let tnextb = foldl reboundAction tprevb $ filter (isPlausible tprevb) actions in 
-            (changed || tnextb < tprevb, ((t, tnextb), actions) : l))
-        (False, []) cbounds
-    where
-    bounds :: [(String, Int)]
-    bounds = map fst cbounds
-    reboundAction :: Int -> action -> Int
-    reboundAction bound action =
-        min bound $ boundsGame bounds action
-    -- only consider rebounding with plausible methods (subtasks all have lower bounds)
-    isPlausible :: Int -> action -> Bool
-    isPlausible bound method = and $
-        map ((< bound) . taskBound bounds . taskName . snd) $
-        enumerateTasks method
 
-{-
-iterateBounds :: forall action a domain . 
-    ( HasName action
-    , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists a action
-    , HasTaskConstraints action
-    , HasActions action domain
-    ) => domain -> [(Bool, (String, Int))]-> [(Bool, (String, Int))]
-iterateBounds domain cbounds = {-# SCC "iterateBounds" #-}
-    foldl (\l tb -> reboundTask tb : l) [] cbounds
-    where
-    bounds :: [(String, Int)]
-    bounds = map snd cbounds
-    reboundTask :: (Bool, (String, Int)) -> (Bool, (String, Int))
-    reboundTask (_, (task, bound)) = (\(changed, bound') -> (changed, (task, bound'))) $
-        foldl reboundAction (False, bound) $
-        filter (isPlausible bound) $
-        findMethods domain task
-    reboundAction :: (Bool, Int) -> action -> (Bool, Int)
-    reboundAction (changed, bound) action =
-        let bound' = boundsGame bounds action in
-        (changed || bound' < bound, min bound bound')
-    -- only consider rebounding with plausible methods (subtasks all have lower bounds)
-    isPlausible :: Int -> action -> Bool
-    isPlausible bound method = and $
-        map ((< bound) . taskBound bounds . taskName . snd) $
-        enumerateTasks method
--}
-
-boundsGame :: 
-    ( HasName action
-    , HasTaskLists a action
-    , HasTaskConstraints action
-    ) => [(String, Int)] -> action -> Int
-boundsGame bounds method = 
+boundsGame ::
+    ( HasTaskLists a tasked
+    , HasTaskConstraints tasked
+    ) => tasked -> [(Text, Int)] -> Int
+boundsGame tasked bounds =
     {-# SCC "bounds-game" #-} minimum $ bg (max 1 $ length tasks) taskWeights
     where
-    tasks :: [(Int, String)]
-    tasks = map (\(n, t) -> (n, taskName t)) (enumerateTasks method)
+    tasks :: [(Int, Text)]
+    tasks = map (\(n, t) -> (n, taskName t)) (enumerateTasks tasked)
     taskConstraints :: [(Int, [Int])]
-    taskConstraints = map (\(t,_) -> (t, map fst $ findPrevTasks method t)) tasks
+    taskConstraints = map (\(t,_) -> (t, map fst $ findPrevTasks tasked t)) tasks
     taskWeights :: [(Int, Int)]
     taskWeights = map (\(n,t) -> (n, taskBound bounds t)) tasks
 
@@ -114,19 +82,18 @@ boundsGame bounds method =
         tnc :: (Int, [(Int, Int)])
         tnc = progressTask tn $ minimumBy (compare `on` snd) $ unconstrained tn
     progressTask :: [(Int, Int)] -> (Int, Int) -> (Int, [(Int, Int)])
-    progressTask tn t@(_,lw) = 
+    progressTask tn t@(_,lw) =
         (lw + length tn', tn')
         where
         tn' = delete t tn
     -- Returns all tasks that do not have parents in current task network
     unconstrained :: [(Int, Int)] -> [(Int, Int)]
-    unconstrained tn = 
+    unconstrained tn =
         filter ( null . intersect labels . fromMaybe [] . flip lookup taskConstraints . fst) tn
         where
         labels :: [Int]
         labels = map fst tn
 
 
-taskBound :: [(String, Int)] -> String -> Int
+taskBound :: [(Text, Int)] -> Text -> Int
 taskBound bounds = maybe maxBound id . flip lookup bounds
-
