@@ -15,7 +15,7 @@ module HTNTranslation.ProblemLifter (
 ) where
 
 import Data.Maybe
-import Data.Text (Text, append, pack)
+import Data.Text (Text, append)
 
 import HTNTranslation.HTNPDDL
 

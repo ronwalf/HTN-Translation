@@ -43,15 +43,15 @@ minProgression domain problem =
                 (changed || tnextb < tprevb, ((t, tnextb), actions) : l))
             (False, []) cbounds
         where
-        bounds :: [(Text, Int)]
-        bounds = map fst cbounds
+        ibounds :: [(Text, Int)]
+        ibounds = map fst cbounds
         reboundAction :: Int -> action -> Int
         reboundAction bound action =
-            min bound $ boundsGame action bounds
+            min bound $ boundsGame action ibounds
         -- only consider rebounding with plausible methods (subtasks all have lower bounds)
         isPlausible :: Int -> action -> Bool
         isPlausible bound method = and $
-            map ((< bound) . taskBound bounds . taskName . snd) $
+            map ((< bound) . taskBound ibounds . taskName . snd) $
             (enumerateTasks method :: [(Int, Expr PDDLAtom)])
     
 
