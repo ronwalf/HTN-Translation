@@ -40,8 +40,8 @@ packages:
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 extra-deps:
-- git: https://github.com/ronwalf/Planning.git
-  commit: 0.3.1
+- github: ronwalf/Planning
+  commit: 3b0cbd3d672fac0ab5fddb00008ba6a88bdd79e3
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
