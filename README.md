@@ -3,14 +3,10 @@
 HTNTranslation is a program for translating [Hierarchical Task Network](http://www.aaai.org/Papers/AAAI/1994/AAAI94-173.pdf) problems into [PDDL](http://www.jair.org/media/1129/live-1129-2132-jair.pdf).  This is an extension of the work described in "[Translating HTNs to PDDL](http://www.umiacs.umd.edu/publications/translating-htns-pddl-small-amount-domain-knowledge-can-go-long-way)," handling both totally ordered and partially ordered subtasks.
 
 ## Requirements and installation.
-HTNTranslation requires a recent copy of [Haskell](http://hackage.haskell.org/platform/), being most recently tested on GHC 7.4.2.  Beyond that, we also require a copy of the [Planning](http://github.com/ronwalf/Planning) Haskell PDDL parsing and representation library. After downloading and unpacking both Planning and HTNTranslation, install them using [Cabal](http://www.haskell.org/cabal/).  For example, to install for just the current user:
+HTNTranslation requires a recent copy of [Haskell](http://hackage.haskell.org/platform/), being most recently tested on GHC 8.6.3.  Beyond that, we also require [Stack](https://docs.haskellstack.org/en/stable/README/). Stack handles building and dependencies, most notably the [Planning](http://github.com/ronwalf/Planning) Haskell PDDL parsing and representation library. After downloading and unpacking HTNTranslation, install them using `stack`. For example, to install for just the current user:
 
-    $ cd <planning dir>
-    $ cabal install --user
-    ...
-    $ cd -
     $ cd <htntranslation dir>
-    $ cabal install --user
+    $ stack install
     ...
 
 HTNTranslation installs one executable, `htntranslate`, which is self documenting.  See `examples/toy/README.txt` for a demonstration of how to translate a domain and problem and then find a solution using the [FF](http://fai.cs.uni-saarland.de/hoffmann/ff.html) planner.  
