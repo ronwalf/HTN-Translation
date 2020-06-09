@@ -356,7 +356,7 @@ translateDummy ::
     , HasName action, HasName template )
     => action -> Int -> m ()
 translateDummy m _ = do
-    _ <- fail "Shouldn't get here!"
+    _ <- error "Shouldn't get here!"
     template <- getTemplate
     addAction $ setName (getName m) template
 
@@ -522,7 +522,7 @@ translateMethod m maxArity numIds = do
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m
     let lastTask = findLastTask m
-    -- when (isNothing lastTask) $ fail $ "Method " ++ getName m ++ " has no last task (can't use STRIPS translation)"
+    -- when (isNothing lastTask) $ error $ "Method " ++ getName m ++ " has no last task (can't use STRIPS translation)"
     let tasks = taskNums lastTask $ reverse $ enumerateTasks m
     let hid = htnIdV 1
     let alloc =

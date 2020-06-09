@@ -53,7 +53,7 @@ boundProgression domain problem = do
     noHeadlessMethodsCheck :: m ()
     noHeadlessMethodsCheck = flip mapM_ (getActions domain) $ \a ->
         when ((isNothing $ getTaskHead a) && (not $ null $ getTaskLists a)) $
-        fail $ (show $ getName a) ++ " has subtasks but no task head."
+        error $ (show $ getName a) ++ " has subtasks but no task head."
     tailRecursionCheck :: [Text] -> m ()
     tailRecursionCheck cyclic =
         flip mapM_ cyclic $ \t ->
@@ -64,7 +64,7 @@ boundProgression domain problem = do
         flip mapM_
             (filter (not . (== findLastTask action) . Just) $
             enumerateTasks action) $
-        \(_, ts) -> when (taskName ts `elem` cyclic) $ fail $ show (getName action) ++ " has non-tail recursion through task " ++ (show $ taskName ts) ++ " in problem " ++ (show $ getName problem)
+        \(_, ts) -> when (taskName ts `elem` cyclic) $ error $ show (getName action) ++ " has non-tail recursion through task " ++ (show $ taskName ts) ++ " in problem " ++ (show $ getName problem)
     -- |Bound progression for a list of task cycles
     progressionBound :: [[Text]] -> [([Text], Int)]
     progressionBound = foldr boundSet []

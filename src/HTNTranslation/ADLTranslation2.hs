@@ -354,7 +354,7 @@ translateDummy ::
 translateDummy m = do
     template <- getTemplate
     addAction $ setName (getName m) template
-    fail "Dummy translator reached"
+    error "Dummy translator reached"
 
 
 translateUncontrolled :: forall m dom sdom template action param pre eff.

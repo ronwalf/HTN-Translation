@@ -391,7 +391,7 @@ translateMethod m = do
     template <- getTemplate
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m
-    when (isNothing $ findFirstTask m) $ fail $ "Method " ++ (show $ getName m) ++ " has no first task (can't use totally-ordered translation)"
+    when (isNothing $ findFirstTask m) $ error $ "Method " ++ (show $ getName m) ++ " has no first task (can't use totally-ordered translation)"
     let firstTask = fromJust $ findFirstTask m
     tasklist <- liftM ((:) firstTask) $ mkTaskList firstTask
     let hidl@(hid:_) = [htnIdV i | i <- [1 .. length tasklist]]
@@ -427,4 +427,4 @@ translateMethod m = do
         case findNextTasks m n of
             [] -> return []
             [t] -> liftM (t : ) $ mkTaskList t
-            _ -> fail $ "Method " ++ (show $ getName m) ++ " is not totally ordered!"
+            _ -> error $ "Method " ++ (show $ getName m) ++ " is not totally ordered!"
