@@ -115,8 +115,7 @@ findAllTypedVars typeDefs = concatMap retype . groupBy ((==) `on` removeType) . 
     retype tl@(t:_) = [eTyped (removeType t) $ nub $ sort $ concatMap getType tl]
 
 
-
-type LiftedHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr ConstraintGDExpr TermExpr
+type LiftedHTNProblem = HProblem InitLiteralExpr PreferenceGDExpr EqualityConstraintExpr TermExpr
 
 
 liftedProblemParser :: GenParser Char LiftedHTNProblem LiftedHTNProblem
@@ -124,11 +123,12 @@ liftedProblemParser =
     let
         stateP = T.parens pddlExprLexer $ initLiteralParser pddlExprLexer :: CharParser LiftedHTNProblem InitLiteralExpr
         goalP = prefGDParser pddlExprLexer :: CharParser LiftedHTNProblem PreferenceGDExpr
-        constraintP = constraintGDParser pddlExprLexer :: CharParser LiftedHTNProblem ConstraintGDExpr
+        constraintP = emptyAndListParser pddlExprLexer (effectDParser pddlExprLexer) :: CharParser StandardHTNProblem [EqualityConstraintExpr] -- Technically shouldn't be used
         infoP =
             (taskListParser htnDescLexer (termParser pddlExprLexer) >>= updateState)
             <|> (taskConstraintParser htnDescLexer >>= updateState)
             <|> problemInfoParser htnDescLexer stateP goalP constraintP
+            
     in
     problemParser htnDescLexer infoP
 
@@ -146,39 +146,38 @@ copyProblem prob =
     setRequirements (getRequirements prob) $
     setConstants (getConstants prob) $
     setInitial (getInitial prob) $
-    setGoal (getGoal prob) $
-    setConstraints (getConstraints prob) $
-    (emptyHProblem :: StandardHTNProblem)
+    setGoal (getGoal prob) (emptyHProblem :: StandardHTNProblem)
 
 
 trivialConversion :: (Monad m) => LiftedHTNProblem -> m StandardHTNProblem
 trivialConversion prob = do
-    taskLists <- mapM convertList $ getTaskLists prob
+    taskList <- mapM convertList $ getTaskList prob
     return $
-        setTaskLists taskLists $
-        setTaskConstraints (getTaskConstraints prob) $
+        setTaskList taskList $
+        setTaskOrdering (getTaskOrdering prob) $
+        setConstraints (getConstraints prob) $
         copyProblem prob
     where
-    convertList :: (Monad m) => (Maybe Text, [Expr (Atomic TermExpr)]) -> m (Maybe Text, [Expr (Atomic ConstTermExpr)])
-    convertList (name, tasks) = do
-        ctasks <- mapM (\t -> do {(tl :: [ConstTermExpr]) <- mapM cfConversion (taskArgs t); return (eAtomic (taskName t) tl)}) tasks
-        return (name, ctasks :: [Expr (Atomic ConstTermExpr)])
+    convertList :: (Monad m) => (Maybe Text, Expr (Atomic TermExpr)) -> m (Maybe Text, Expr (Atomic ConstTermExpr))
+    convertList (name, task) = do
+        tl <- mapM cfConversion (taskArgs task)
+        let ctask = eAtomic (taskName task) tl
+        return (name, ctask :: Expr (Atomic ConstTermExpr))
 
 
 injectionConversion :: StandardHTNDomain -> LiftedHTNProblem -> (StandardHTNDomain, StandardHTNProblem)
 injectionConversion dom lprob =
-    ( injectDomain $ injectMethod (getTaskLists lprob) (getTaskConstraints lprob)
-    , setTaskLists [(Nothing, [tname :: Expr (Atomic ConstTermExpr)])] $ copyProblem lprob)
+    ( injectDomain $ injectMethod (getTaskList lprob) (getTaskOrdering lprob)
+    , setTaskList [(Nothing, tname :: Expr (Atomic ConstTermExpr))] $ copyProblem lprob)
     where
     tname :: forall t . Expr (Atomic t)
     tname = eAtomic "htn_initial_task" ([] :: [t])
     injectDomain :: StandardMethod -> StandardHTNDomain
     injectDomain m =
         setTaskHead (tname : getTaskHead dom) $
-        setActions (m : getActions dom) $
-        dom
-    injectMethod :: [TaskList TermExpr] -> [TaskConstraint] -> StandardMethod
-    injectMethod taskLists taskConstraints =
+        setActions (m : getActions dom) dom
+    injectMethod :: [TaskDef TermExpr] -> [TaskConstraint] -> StandardMethod
+    injectMethod taskList taskOrdering =
         let
             tdefs =
                 -- (\x -> trace (("TDefs: "++) $ show $ map pddlDoc x) x) $
@@ -187,14 +186,13 @@ injectionConversion dom lprob =
                 -- (\x -> trace (("Params: " ++) $ show $ pddlDoc x) x) $
                 findAllTypedVars tdefs $
                 -- (\x -> trace (("Tasks: " ++) $ show $ map pddlDoc x) x) $
-                concatMap snd taskLists
+                map snd taskList
         in
         setName "assert_initial_tasks" $
         setTaskHead (Just tname) $
         setParameters params $
-        setTaskLists taskLists $
-        setTaskConstraints taskConstraints $
-        defaultMethod
+        setTaskList taskList $
+        setTaskOrdering taskOrdering defaultMethod
 
 removeEmptyTypes :: StandardHTNDomain -> StandardHTNProblem -> StandardHTNDomain
 removeEmptyTypes dom prob =
@@ -322,15 +320,15 @@ ensurePrimitiveTasks dom =
     flip setTaskHead dom $
     (++ getTaskHead dom) $
     map (\a -> eAtomic (getName a) (getParameters a)) $
-    filter (\a -> (getName a) `notElem` (map taskName $ getTaskHead dom)) $
-    filter (\a -> (Just $ getName a) == ((getTaskHead a) >>= (return . taskName))) $
+    filter (\a -> getName a `notElem` map taskName (getTaskHead dom)) $
+    filter (\a -> (Just $ getName a) == (taskName <$> getTaskHead a)) $
     getActions dom
 
 ensurePredicates :: StandardHTNDomain -> StandardHTNProblem -> StandardHTNDomain
 ensurePredicates dom prob = setPredicates (getPredicates dom ++ tpreds) dom
     where
     typedVars :: [TypedVarExpr]
-    typedVars = map (flip eTyped ["POBJ"] . (eVar :: Text -> Expr Var) . (append "v") . pack . show) ([1..] :: [Int])
+    typedVars = map (flip eTyped ["POBJ"] . (eVar :: Text -> Expr Var) . append "v" . pack . show) ([1..] :: [Int])
     definedAtoms :: [Text]
     definedAtoms = ("=":) $ map taskName $ getPredicates dom
     nameArity :: forall g . Expr (Atomic g) -> (Text, Int)
@@ -338,7 +336,7 @@ ensurePredicates dom prob = setPredicates (getPredicates dom ++ tpreds) dom
     precondAtoms :: PDDLPrecond -> [(Text, Int)]
     precondAtoms = map nameArity . (findAtoms :: GDExpr -> [Expr (Atomic TermExpr)]) . snd
     effectAtoms :: PDDLEffect -> [(Text,Int)]
-    effectAtoms (_, Just p, e) = (map nameArity (findAtoms p :: [Expr (Atomic TermExpr)])) ++ (effectAtoms ([], Nothing, e))
+    effectAtoms (_, Just p, e) = map nameArity (findAtoms p :: [Expr (Atomic TermExpr)]) ++ effectAtoms ([], Nothing, e)
     effectAtoms (_, Nothing, e) = map nameArity $ concatMap (findAtoms :: EffectDExpr -> [Expr (Atomic TermExpr)]) e
     actionAtoms :: StandardMethod -> [(Text, Int)]
     actionAtoms action =
@@ -348,8 +346,8 @@ ensurePredicates dom prob = setPredicates (getPredicates dom ++ tpreds) dom
     tpreds = map (\(p,n) -> eAtomic p (take n typedVars)) $
         filter (flip notElem definedAtoms . fst) $
         nub $ sort $
-        (concatMap actionAtoms (getActions dom))
-        ++ (map nameArity $ concatMap (findAtoms :: InitLiteralExpr -> [Expr (Atomic ConstTermExpr)]) $ getInitial prob)
+        concatMap actionAtoms (getActions dom)
+        ++ map nameArity (concatMap (findAtoms :: InitLiteralExpr -> [Expr (Atomic ConstTermExpr)]) $ getInitial prob)
 
 processProblem :: StandardHTNDomain -> String -> IO ()
 processProblem domain probFile = do
@@ -358,12 +356,13 @@ processProblem domain probFile = do
     let (dom',prob') =
 --            (\x -> trace (("Post type removal:\n" ++) $
 --                show $ pddlDoc $ fst x) x) $
-            compileTypes $ (\(d, p) -> (removeEmptyTypes d p, p)) $
+--            compileTypes $ 
+            (\(d, p) -> (removeEmptyTypes d p, p)) $
 --            (\x -> trace (("Pre type removal:\n" ++) $
 --                show $ pddlDoc $ fst x) x) $
 --            (\x -> trace (("Reachable: " ++ ) $
 --                show $ findReachableTasks (fst x) (snd x)) x) $
-            case (trivialConversion problem) of
+            case trivialConversion problem of
                 (Just p) -> (domain, p)
                 Nothing -> injectionConversion domain problem
     saveFiles (flip ensurePredicates prob' $ stripUnreachable dom' prob') prob' probFile

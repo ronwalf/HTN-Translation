@@ -8,20 +8,21 @@ import Data.Function (on)
 import Data.List
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+
 --import Debug.Trace
 
 import HTNTranslation.HTNPDDL
 import HTNTranslation.ProgressionBounds (findMethods, findReachableTasks')
 
 -- |Provides the minimum progression bound necessary for
-minProgression :: forall action domain problem .
+minProgression :: forall action domain problem.
     ( HasName action
     , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists TermExpr action
-    , HasTaskConstraints action
+    , HasTaskList TermExpr action
+    , HasTaskOrdering action
     , HasActions action domain
-    , HasTaskLists ConstTermExpr problem
-    , HasTaskConstraints problem
+    , HasTaskList TermExpr problem
+    , HasTaskOrdering problem
     ) => domain -> problem -> (Int, [(Text, Int)])
 minProgression domain problem =
     (boundsGame problem bounds, bounds)
@@ -50,22 +51,22 @@ minProgression domain problem =
             min bound $ boundsGame action ibounds
         -- only consider rebounding with plausible methods (subtasks all have lower bounds)
         isPlausible :: Int -> action -> Bool
-        isPlausible bound method = and $
-            map ((< bound) . taskBound ibounds . taskName . snd) $
+        isPlausible bound method =  
+            all ((< bound) . taskBound ibounds . taskName . snd)
             (enumerateTasks method :: [(Int, Expr PDDLAtom)])
     
 
 boundsGame ::
-    ( HasTaskLists a tasked
-    , HasTaskConstraints tasked
+    ( HasTaskList a tasked
+    , HasTaskOrdering tasked
     ) => tasked -> [(Text, Int)] -> Int
 boundsGame tasked bounds =
     {-# SCC "bounds-game" #-} minimum $ bg (max 1 $ length tasks) taskWeights
     where
     tasks :: [(Int, Text)]
     tasks = map (\(n, t) -> (n, taskName t)) (enumerateTasks tasked)
-    taskConstraints :: [(Int, [Int])]
-    taskConstraints = map (\(t,_) -> (t, map fst $ findPrevTasks tasked t)) tasks
+    taskOrdering :: [(Int, [Int])]
+    taskOrdering = map (\(t,_) -> (t, map fst $ findPrevTasks tasked t)) tasks
     taskWeights :: [(Int, Int)]
     taskWeights = map (\(n,t) -> (n, taskBound bounds t)) tasks
 
@@ -89,7 +90,7 @@ boundsGame tasked bounds =
     -- Returns all tasks that do not have parents in current task network
     unconstrained :: [(Int, Int)] -> [(Int, Int)]
     unconstrained tn =
-        filter ( null . intersect labels . fromMaybe [] . flip lookup taskConstraints . fst) tn
+        filter ( null . intersect labels . fromMaybe [] . flip lookup taskOrdering . fst) tn
         where
         labels :: [Int]
         labels = map fst tn

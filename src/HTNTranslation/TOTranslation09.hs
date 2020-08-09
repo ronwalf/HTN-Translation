@@ -44,15 +44,15 @@ translateMethod :: forall m dom sdom template action pre eff.
      HasEffect ([TypedVarExpr], Maybe GDExpr, [Expr eff]) template,
      Atomic TermExpr:<: eff, Not :<: eff,
      HasTaskHead (Maybe (Expr (Atomic TermExpr))) action,
-     HasTaskLists TermExpr action,
-     HasTaskConstraints action,
+     HasTaskList TermExpr action,
+     HasTaskOrdering action,
      HasActions template dom,
      HasTaskHead [StdTaskDef] sdom
      )
     => action -> m ()
 translateMethod m = do
     guard $ isJust $ getTaskHead m
-    guard $ not $ null $ getTaskLists m
+    guard $ not $ null $ getTaskList m
     template <- getTemplate
     sdom <- getSDomain
     let task = fromJust $ getTaskHead m

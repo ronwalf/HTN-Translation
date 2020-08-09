@@ -1,5 +1,5 @@
 Name:	    htn-translation	
-Version:	0.3.1
+Version:	0.4.1
 Cabal-Version:  >= 1.8
 Build-Type:     Simple
 License:	BSD3
@@ -8,7 +8,7 @@ Author:		Ron Alford <ronwalf@volus.net>
 Maintainer:     Ron Alford <ronwalf@volus.net>
 Homepage:	https://github.com/ronwalf/HTN-Translation
 Category:	AI
-Synopsis:	A library for translating HTNs into PDDL domains
+Synopsis:	A library for translating HTNs (HDDL) into PDDL domains
 Description:    HTNTranslation is a program for translating Hierarchical Task Network problems into PDDL.  This is an extension of the work described in "Translating HTNs to PDDL," handling both totally ordered and partially ordered subtasks.
 
 source-repository head
@@ -36,10 +36,10 @@ Library
   Exposed-modules:
         HTNTranslation.HTNPDDL, 
         HTNTranslation.ADLTranslation, 
-        HTNTranslation.ADLTranslation2, 
+        -- HTNTranslation.ADLTranslation2, 
         HTNTranslation.Translation, 
         HTNTranslation.TOTranslation, 
-        HTNTranslation.TOTranslation09,
+        -- HTNTranslation.TOTranslation09,
         HTNTranslation.ProblemLifter, 
         HTNTranslation.ProgressionBounds,
         HTNTranslation.ProgressionMin
@@ -60,20 +60,20 @@ Executable htntranslate
     Hs-Source-Dirs: src-cmdline
     GHC-Options: -Wall
 
-Executable htnunlift
-    Main-Is: htnunlift.hs
-    Build-Depends:
-        base >= 4 && < 5,
-        containers >= 0.2.0.0,
-        parsec >= 3,
-        prettyprinter >= 1.2,
-        planning >= 0.2,
-        mtl >= 1,
-        filepath >= 1.4.0,
-        text >= 1.2,
-        htn-translation
-    Hs-Source-Dirs: src-cmdline
-    GHC-Options: -Wall
+-- Executable htnunlift
+--     Main-Is: htnunlift.hs
+--     Build-Depends:
+--         base >= 4 && < 5,
+--         containers >= 0.2.0.0,
+--         parsec >= 3,
+--         prettyprinter >= 1.2,
+--         planning >= 0.2,
+--         mtl >= 1,
+--         filepath >= 1.4.0,
+--         text >= 1.2,
+--         htn-translation
+--     Hs-Source-Dirs: src-cmdline
+--     GHC-Options: -Wall
 
 Executable htntranslate-prof
     Main-Is: htntranslate.hs

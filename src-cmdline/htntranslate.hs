@@ -6,6 +6,7 @@
     FlexibleContexts,
     FlexibleInstances,
     MultiParamTypeClasses,
+    OverloadedStrings,
     ScopedTypeVariables,
     TypeOperators,
     UndecidableInstances
@@ -28,24 +29,24 @@ import HTNTranslation.HTNPDDL
 import HTNTranslation.ProblemLifter
 import HTNTranslation.Translation
 import qualified HTNTranslation.ADLTranslation as ATrans
-import qualified HTNTranslation.ADLTranslation2 as ATrans2
+-- import qualified HTNTranslation.ADLTranslation2 as ATrans2
 import qualified HTNTranslation.TOTranslation as TOTrans
-import qualified HTNTranslation.TOTranslation09 as TOTrans09
+-- import qualified HTNTranslation.TOTranslation09 as TOTrans09
 import qualified HTNTranslation.ProgressionBounds as PB
 import qualified HTNTranslation.ProgressionMin as PM
 
 data TranslationType =
     ADLTranslation
-    | ADLTranslation2
+    -- | ADLTranslation2
     | STRIPSTranslation
     | TOTranslation
-    | TOTranslation09
+    -- | TOTranslation09
 
 data Options = Options
     { optTrans :: TranslationType
     , optNumIds :: Int
     , optMaxArity :: Int
-    , optLift :: [Expr (Atomic ConstTermExpr)]
+    , optLift :: [Expr (Atomic TermExpr)]
     , optPostfix :: String
     , optStats :: Bool
     , optVerbose :: Bool
@@ -65,26 +66,26 @@ defaultOptions = Options
 options :: [OptDescr (Options -> IO Options)]
 options =
     [ Option ['t'] ["type"]
-        (ReqArg (\t opts -> liftM (\x -> opts { optTrans = x }) $
+        (ReqArg (\t opts -> fmap (\x -> opts { optTrans = x }) $
             case map toLower t of
                 "adl" -> return ADLTranslation
-                "adl2" -> return ADLTranslation2
+                -- "adl2" -> return ADLTranslation2
                 "strips" -> return STRIPSTranslation
                 "ordered" -> return TOTranslation
-                "ordered09" -> return TOTranslation09
+                -- "ordered09" -> return TOTranslation09
                 _ -> fail $ "Unknown translation type '" ++ t ++ "'")
             "TYPE")
-        "Set the translation type (adl|adl2|strips|ordered|ordered09)"
+        "Set the translation type (adl|strips|ordered)"
     , Option ['i']  ["identifiers"]
-        (ReqArg (\n opts -> do
-            case (reads n) of
+        (ReqArg (\n opts ->
+            case reads n of
                 [(ids, "")] -> return $ opts { optNumIds = ids}
                 _ -> fail "Cannot parse number of identifiers")
          "NUM")
          "Manually set the number of identifiers to insert."
     , Option ['a']  ["arity"]
-        (ReqArg (\n opts -> do
-            case (reads n) of
+        (ReqArg (\n opts ->
+            case reads n of
                 [(a, "")] -> return $ opts { optMaxArity = a}
                 _ -> fail "Cannot parse number of identifiers")
          "NUM")
@@ -120,79 +121,111 @@ errCheck (Left err) = do
 errCheck (Right prob) = return prob
 
 
-taskParser :: CharParser a (Expr (Atomic ConstTermExpr))
+taskParser :: CharParser a (Expr (Atomic TermExpr))
 taskParser = parens pddlExprLexer $
-    atomicParser pddlExprLexer $ constTermParser pddlExprLexer
+    atomicParser pddlExprLexer $ termParser pddlExprLexer
 
 
-processProblem :: Options -> StandardHTNDomain -> String -> IO Int
+replaceInitialTasks :: StandardHTNDomain -> StandardHTNProblem -> (StandardHTNDomain, StandardHTNProblem, Expr (Atomic ConstTermExpr))
+replaceInitialTasks domain problem = 
+    ( injectDomain injectedMethod
+    , setTaskList [(Nothing, tname :: Expr (Atomic TermExpr))] $
+        setConstraints [] $
+        setTaskOrdering [] $
+        setParameters [] problem
+    , tname
+    )
+    where
+    tname :: forall t . Expr (Atomic t)
+    tname = eAtomic "htn_initial_task" ([] :: [t])
+    injectDomain :: StandardMethod -> StandardHTNDomain
+    injectDomain m =
+        setTaskHead (tname : getTaskHead domain) $
+        setActions (m : getActions domain) domain
+    injectedMethod :: StandardMethod
+    injectedMethod =
+        let
+            taskList = getTaskList problem
+            taskOrdering = getTaskOrdering problem
+            params = getParameters problem
+        in
+        setName "assert_initial_tasks" $
+        setTaskHead (Just tname) $
+        setParameters params $
+        setTaskList taskList $
+        setConstraints (getConstraints problem) $
+        setTaskOrdering taskOrdering defaultMethod
+
+
+processProblem :: Options -> StandardHTNDomain -> String -> IO (Int, StandardHTNDomain)
 processProblem opts domain fname = do
     contents <- readFile fname
     problem <- {-# SCC "problem-parsing" #-} errCheck $ parseHTNProblem fname contents
     let lifted = case optLift opts of
             [] -> problem
             tasks -> liftProblem tasks problem
-    let (lbound, lbounds) = {-# SCC "min-progression" #-} PM.minProgression domain lifted
+    let (domain', problem', initialTask) = replaceInitialTasks domain lifted
+    let (lbound, lbounds) = {-# SCC "min-progression" #-} PM.minProgression domain' problem'
     when (optStats opts) $
-        putStrLn $ "Problem '" ++ (show $ getName lifted) ++
+        putStrLn $ "Problem '" ++ show (getName problem') ++
             "' min progression bound: " ++ show lbound
     when (optVerbose opts) $
-        hPutStrLn stderr $ "Problem '" ++ (show $ getName lifted) ++
+        hPutStrLn stderr $ "Problem '" ++ show (getName problem') ++
             "' min progression bound " ++ show lbound ++ ", tasks: " ++ show lbounds
 
-    numIds <- if (optNumIds opts > 0)
+    numIds <- if optNumIds opts > 0
         then return (optNumIds opts)
         else do
-            (bound, bounds) <- {-# SCC "progression-bound" #-} PB.boundProgression domain lifted
-            when (optStats opts) $ putStrLn $ "Problem '" ++ (show $ getName lifted) ++
+            (bound, bounds) <- {-# SCC "progression-bound" #-} PB.boundProgression domain' problem'
+            when (optStats opts) $ putStrLn $ "Problem '" ++ show (getName problem') ++
                 "' max progression bound: " ++ show bound
-            when (optVerbose opts) $ do
-                hPutStrLn stderr $ "Problem '" ++ (show $ getName lifted) ++
+            when (optVerbose opts) $
+                hPutStrLn stderr $ "Problem '" ++ show (getName problem') ++
                     "' max progression bound: " ++ show bound ++ ", tasks: " ++ show bounds
             return bound
-    let problem' = {-# SCC "translating-problem" #-} case optTrans opts of
-            TOTranslation -> TOTrans.translateProblem emptyProblem numIds lifted
-            TOTranslation09 -> TOTrans.translateProblem emptyProblem numIds lifted
-            ADLTranslation ->  ATrans.translateProblem emptyProblem numIds lifted
-            ADLTranslation2 ->  ATrans2.translateProblem emptyProblem numIds lifted
-            STRIPSTranslation -> translateProblem emptyProblem (optMaxArity opts) numIds lifted
-    {-# SCC "saving-file" #-} saveFile opts fname $ show $ pddlDoc problem'
-    return numIds
+    let pddl_problem = {-# SCC "translating-problem" #-} case optTrans opts of
+            TOTranslation -> TOTrans.translateProblem emptyProblem numIds initialTask problem'
+            -- TOTranslation09 -> TOTrans.translateProblem emptyProblem numIds initialTask problem'
+            ADLTranslation ->  ATrans.translateProblem emptyProblem numIds initialTask problem'
+            -- ADLTranslation2 ->  ATrans2.translateProblem emptyProblem numIds initialTask problem'
+            STRIPSTranslation -> translateProblem emptyProblem (optMaxArity opts) numIds initialTask problem'
+    {-# SCC "saving-file" #-} saveFile opts fname $ show $ pddlDoc (pddl_problem :: PDDLProblem)
+    return (numIds, domain')
 
 main :: IO ()
 main = do
     argv <- getArgs
-    (opts, domFile, probFiles) <- case getOpt Permute options argv of
-        (o,dom:files,[]) -> do
+    (opts, domFile, probFile) <- case getOpt Permute options argv of
+        (o,[dom,file],[]) -> do
             opts <- foldM (\opts f -> f opts) defaultOptions o
-            return (opts, dom, files)
+            return (opts, dom, file)
         (_, _, errs) ->
             ioError $ userError $
             concat errs
-            ++ usageInfo "Usage: htntranslate [OPTION...] domain files..." options
+            ++ usageInfo "Usage: htntranslate [OPTION...] domain problem" options
     domContents <- readFile domFile
-    domain <-  {-# SCC "parse-domain" #-} (errCheck $ parseHTNPDDL domFile domContents) >>= tailRec opts
+    domain <-  {-# SCC "parse-domain" #-} errCheck (parseHTNPDDL domFile domContents) >>= tailRec opts
     when (optVerbose opts) $ do
         hPutStrLn stderr "Parsed domain:"
-        hPutStrLn stderr $ show domain
+        hPrint stderr domain
         hPutStrLn stderr ""
-    numIds <- liftM (maximum . (1:)) $ mapM (processProblem opts domain) probFiles
+    (numIds, domain') <- processProblem opts domain probFile
     tdomain <- case optTrans opts of
-            TOTranslation -> TOTrans.translateDomain emptyDomain defaultAction domain
+            TOTranslation -> TOTrans.translateDomain emptyDomain defaultAction domain'
                 [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans.translateMethod]
-            TOTranslation09 -> TOTrans.translateDomain emptyDomain defaultAction domain
-                [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans09.translateMethod]
-            ADLTranslation -> ATrans.translateDomain emptyDomain defaultAction domain
+            -- TOTranslation09 -> TOTrans.translateDomain emptyDomain defaultAction domain'
+                -- [TOTrans.translateUncontrolled, TOTrans.translateAction, TOTrans.translateMethod1, TOTrans09.translateMethod]
+            ADLTranslation -> ATrans.translateDomain emptyDomain defaultAction domain'
                     [ATrans.translateUncontrolled, ATrans.translateAction, ATrans.translateMethod]
-            ADLTranslation2 -> ATrans2.translateDomain emptyDomain defaultAction domain
-                    [ATrans2.translateUncontrolled, ATrans2.translateAction, ATrans2.translateMethod1, ATrans2.translateMethod]
-            STRIPSTranslation -> translateDomain emptyDomain defaultAction domain (optMaxArity opts) numIds
+            -- ADLTranslation2 -> ATrans2.translateDomain emptyDomain defaultAction domain'
+                    -- [ATrans2.translateUncontrolled, ATrans2.translateAction, ATrans2.translateMethod1, ATrans2.translateMethod]
+            STRIPSTranslation -> translateDomain emptyDomain defaultAction domain' (optMaxArity opts) numIds
                     [translateUncontrolled, translateAction, translateMethod1, translateMethod]
     when (optStats opts) $ do
-        putStrLn $ "max parameter arity: " ++ (show $ maximum $ (0:) $ map (length . getParameters) $ getActions tdomain)
-        putStrLn $ "max predicate arity: " ++ (show $ maximum $ (0:) $ map (length . taskArgs) $ getPredicates tdomain)
+        putStrLn $ "max parameter arity: " ++ show (maximum $ (0:) $ map (length . getParameters) $ getActions tdomain)
+        putStrLn $ "max predicate arity: " ++ show (maximum $ (0:) $ map (length . taskArgs) $ getPredicates tdomain)
         putStrLn $ "unary and type arity: "
-            ++ (show $ (+) (length $ getTypes tdomain) $
+            ++ show ((+) (length $ getTypes tdomain) $
                             length $ filter ((== 1) . length . taskArgs) $ getPredicates tdomain)
     saveFile opts domFile $ show $ pddlDoc tdomain
     return ()
@@ -201,12 +234,10 @@ main = do
     tailRec opts domain =
         let tasks = filter (taskHasLooseEnds domain) $ tasksWithSuccessors domain in
         case (optTrans opts, null tasks) of
-        (ADLTranslation,_) -> do
-            return domain
-        (_,True) -> do
-            return domain
+        (ADLTranslation,_) -> return domain
+        (_,True) -> return domain
         (_, False) -> do
-            when (optVerbose opts) $ do
+            when (optVerbose opts) $
                 hPutStrLn stderr $ "Adding dummy last task for these tasks: " ++ show tasks
             let (dtask, dom') = insertDummy defaultMethod domain
             return $ foldl' (\dom task -> ensureLastTask dom dtask task) dom' tasks

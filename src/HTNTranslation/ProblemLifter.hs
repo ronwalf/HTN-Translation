@@ -108,7 +108,7 @@ constAtomic constTemplate (In (Atomic p tl)) =
 
 --liftProblem ::
 --    template -> problem -> task -> template
-liftProblem :: (HasTaskLists a problem,
+liftProblem :: (HasTaskList a problem,
     HasInitial (Expr s) problem,
     HasGoal (Expr g) problem,
     Atomic ConstTermExpr :<: s,
@@ -127,5 +127,4 @@ liftProblem tasks problem =
             ++ mapMaybe (constAtomic (undefined :: ConstTermExpr)) atomicGoals
     in
     setInitial initGoals $
-    setTaskLists (flip map tasks $ \t -> (Nothing, [t])) $
-    problem
+    setTaskList (flip map tasks $ \t -> (Nothing, t)) problem

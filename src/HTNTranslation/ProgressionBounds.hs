@@ -33,16 +33,16 @@ import HTNTranslation.HTNPDDL
 -- upper bound on the size of the task network reachable via progression.
 -- Returns the problem bound and a list of bounds for sets of
 -- multually-recursive tasks in topological order.
-boundProgression :: forall action domain problem m .
+boundProgression :: forall action domain problem m.
     ( Monad m
     , HasName action
     , HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists TermExpr action
-    , HasTaskConstraints action
+    , HasTaskList TermExpr action
+    , HasTaskOrdering action
     , HasActions action domain
     , HasName problem
-    , HasTaskLists ConstTermExpr problem
-    , HasTaskConstraints problem
+    , HasTaskList TermExpr problem
+    , HasTaskOrdering problem
     ) => domain -> problem -> m (Int, [([Text], Int)])
 boundProgression domain problem = do
     noHeadlessMethodsCheck
@@ -52,7 +52,7 @@ boundProgression domain problem = do
     where
     noHeadlessMethodsCheck :: m ()
     noHeadlessMethodsCheck = flip mapM_ (getActions domain) $ \a ->
-        when ((isNothing $ getTaskHead a) && (not $ null $ getTaskLists a)) $
+        when ((isNothing $ getTaskHead a) && (not $ null $ getTaskList a)) $
         error $ (show $ getName a) ++ " has subtasks but no task head."
     tailRecursionCheck :: [Text] -> m ()
     tailRecursionCheck cyclic =
@@ -88,8 +88,7 @@ boundProgression domain problem = do
         gatherTaskEdges :: Text -> (Text, Text, [Text])
         gatherTaskEdges task = (task, task,
             nub $ sort $
-            concatMap (map taskName . snd) $
-            concatMap getTaskLists $
+            concatMap (map (taskName . snd) . getTaskList) $
             findMethods domain task)
 
 
@@ -98,8 +97,8 @@ boundProgression domain problem = do
 -- with this method's task head.
 boundsGame :: forall a action .
     ( HasName action
-    , HasTaskLists a action
-    , HasTaskConstraints action
+    , HasTaskList a action
+    , HasTaskOrdering action
     ) => action -> [([Text], Int)] -> Int
 boundsGame action bounds =
     maximum $
@@ -147,7 +146,7 @@ boundsGame action bounds =
 -- |Find all reachable tasks for a given domain-problem pair
 findReachableTasks ::
     ( HasTaskHead (Maybe (Expr PDDLAtom)) action
-    , HasTaskLists a action
+    , HasTaskList a action
     , HasActions action domain
     ) => domain -> [Text] -> [Text]
 findReachableTasks domain =
