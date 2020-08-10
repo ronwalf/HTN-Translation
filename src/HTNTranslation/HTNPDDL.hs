@@ -123,8 +123,8 @@ data HProblem a b c t = HProblem
     (Parameters TypedVarExpr)
     (TaskList t)
     TaskOrdering
+    (Constraints c)
     (Goal b)
-    (Constraints [c])
     deriving (Data, Eq, Typeable)
 
 
@@ -139,29 +139,29 @@ instance (Data a, Data b, Data c, Data t) => HasTaskOrdering (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasGoal b (HProblem a b c t)
 instance (Data a, Data b, Data c, Data t) => HasConstraints c (HProblem a b c t)
 
---instance
---    (Data (Expr a), Data (Expr b), Data (Expr c),
---     PDDLDocExpr a, PDDLDocExpr b, PDDLDocExpr c) =>
---    Show (HProblem (Expr a) (Expr b) (Expr c)) where
--- instance (Data a, Data b, Data c, Data t,
---         PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDocExpr (Atomic t)) =>
---         PDDLDoc (HProblem a b c t) where
---     pddlDoc _ = parens $ sep [
---         prettyT "define",
---         parens (prettyT "problem" <+> prettyT (getName prob)),
---         parens (prettyT ":domain" <+> prettyT (getDomainName prob)),
---         if null $ getRequirements prob then mempty else
---            parens (sep $ prettyT ":requirements" : map (prettyT . cons ':') (getRequirements prob)),
---         docList (parens . sep . (prettyT ":objects" :) . (:[]) . pddlDoc) (getConstants prob),
---         parens ( sep [
---             prettyT ":htn",
---             prettyT ":parameters", -- TODO
---             docMaybe (parens . (prettyT ":constraints" <+>) . pddlDoc) (getConstraints prob),
---             prettyT ":tasks", docAnd $ getTaskList prob,
---             prettyT ":ordering", docAnd taskDoc $ getTaskOrdering prob]),
---         docList (parens . sep . (prettyT ":init" :) . map pddlDoc) (getInitial prob),
---         docMaybe (parens . sep . (prettyT ":goal" :) . (:[]) . pddlDoc) (getGoal prob)
---         ]
+instance (Data a, Data b, Data c, Data t,
+        PDDLDoc a, PDDLDoc b, PDDLDoc c, PDDLDocExpr (Atomic t)) =>
+        PDDLDoc (HProblem a b c t) where
+    pddlDoc prob = parens $ sep [
+        prettyT "define",
+        parens (prettyT "problem" <+> prettyT (getName prob)),
+        parens (prettyT ":domain" <+> prettyT (getDomainName prob)),
+        if null $ getRequirements prob then mempty else
+           parens (sep $ prettyT ":requirements" : map (prettyT . cons ':') (getRequirements prob)),
+        docList (parens . sep . (prettyT ":objects" :) . (:[]) . pddlDoc) (getConstants prob),
+        parens ( sep [
+            prettyT ":htn",
+            prettyT ":parameters" <+> parens (pddlDoc $ getParameters prob),
+            docList ((prettyT ":constraints" <+>) . docAnd pddlDoc) (getConstraints prob),
+            prettyT ":tasks", docAnd taskDoc $ getTaskList prob,
+            prettyT ":ordering", docAnd tordering $ getTaskOrdering prob]),
+        docList (parens . sep . (prettyT ":init" :) . map pddlDoc) (getInitial prob),
+        docMaybe (parens . sep . (prettyT ":goal" :) . (:[]) . pddlDoc) (getGoal prob)
+        ]
+        where
+            tordering (t1, t2) = parens $ sep [prettyT "<", prettyT t1, prettyT t2]
+            taskDoc (Nothing, p) = pddlDoc p
+            taskDoc (Just t, p) = parens $ sep [prettyT t, pddlDoc p]
         
 
 
@@ -175,8 +175,8 @@ emptyHProblem = HProblem
     (Parameters [])
     (TaskList [])
     (TaskOrdering [])
-    (Goal Nothing)
     (Constraints [])
+    (Goal Nothing)
 
 
 type EqualityConstraint = PDDLAtom :+: Not -- More permissive than equality, but should allow for '='
@@ -395,15 +395,14 @@ defaultMethod = Method (Name "")
 
 instance (Data p, Data ct, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc ct, PDDLDoc [t], PDDLDoc ep, PDDLDoc e)
     => PDDLDoc (Method (Maybe Text, p) ct ([t], Maybe ep, [e])) where
-    pddlDoc _ = parens $ sep  [
-        {-
+    pddlDoc m = parens $ sep  [
         (if null (getTaskList m) then prettyT ":action" else prettyT ":method") <+> prettyT (getName m),
         prettyT ":parameters" <+> parens (pddlDoc $ getParameters m),
         docMaybe ((prettyT ":task" <+>) . pddlDoc) (getTaskHead m),
         docList ((prettyT ":precondition" <+>) . docAnd prefDoc) $ getPrecondition m,
         docList ((prettyT ":effect" <+>) . docAnd id . concatMap effectDoc) $ getEffect m,
-        docList ((prettyT ":tasks" <+>) . docAnd taskDoc) (getTaskList m),
-        docList ((prettyT ":ordering" <+>) . docAnd tconstraint) (getTaskOrdering m),
+        docList ((prettyT ":subtasks" <+>) . docAnd taskDoc) (getTaskList m),
+        docList ((prettyT ":ordering" <+>) . docAnd tordering) (getTaskOrdering m),
         docList ((prettyT ":constraints" <+>) . docAnd pddlDoc) (getConstraints m) ]
         where
             prefDoc :: (Maybe Text, p) -> Doc ann
@@ -424,9 +423,12 @@ instance (Data p, Data ct, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc ct, PDDLD
                 prettyT "when",
                 pddlDoc ep,
                 docAnd pddlDoc el ]]
-            -}
-            ]
-
+            taskDoc (Nothing, p) = pddlDoc p
+            taskDoc (Just t, p) = parens $ sep [prettyT t, pddlDoc p]
+            tordering (t1, t2) = parens $ sep [prettyT "<", prettyT t1, prettyT t2]
+instance (Data p, Data ct, Data t, Data ep, Data e, PDDLDoc p, PDDLDoc ct, PDDLDoc [t], PDDLDoc ep, PDDLDoc e)
+    => Show (Method (Maybe Text, p) ct ([t], Maybe ep, [e])) where
+    show m = show $ pddlDoc m
 
 
 type StandardMethod = Method PDDLPrecond EqualityConstraintExpr PDDLEffect
@@ -472,7 +474,7 @@ htnProblemParser =
     where
         htnBlockParser = do
             try $ T.reserved htnDescLexer ":htn"
-            skipMany $ T.parens htnDescLexer htnInfoParser
+            skipMany htnInfoParser
         htnInfoParser = 
             (paramParser pddlExprLexer >>= updateState)
             <|> (taskListParser htnDescLexer (termParser pddlExprLexer :: CharParser StandardHTNProblem TermExpr) >>= updateState)

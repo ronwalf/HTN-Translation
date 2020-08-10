@@ -41,7 +41,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - github: ronwalf/Planning
-  commit: 14235e5998244cf30c824799b0ec394fc3d1ee8a
+  commit: f16a635b9daf0862424209688bc6c27be5fbf1ec
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

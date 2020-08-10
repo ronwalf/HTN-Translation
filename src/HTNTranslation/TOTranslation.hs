@@ -17,6 +17,8 @@
 module HTNTranslation.TOTranslation
 where
 
+import Debug.Trace
+
 import Control.Monad
 import Control.Monad.State
 import Data.List
@@ -142,8 +144,7 @@ domainSetup template domain =
     setConstants (getConstants domain) $
     setFunctions (getFunctions domain) $
     setConstraints (getConstraints domain) $
-    setDerived (getDerived domain) $
-    template
+    setDerived (getDerived domain) template
 
 ---------------------
 -- Translate problem
@@ -162,6 +163,7 @@ translateProblem :: forall template problem g f .
     Atomic ConstTermExpr :<: f)
     => template -> Int -> Expr (Atomic ConstTermExpr) -> problem -> template
 translateProblem template numIds initialTask problem =
+    trace "translateProblem" $
     setName (getName problem) $
     setDomainName (getDomainName problem) $
     setRequirements (getRequirements problem) $

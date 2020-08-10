@@ -13,9 +13,13 @@
   #-}
 module Main where
 
+import Debug.Trace
+
 import Control.Monad
 import Data.Char (toLower)
 import Data.List (foldl')
+import Data.Maybe
+import Data.Text (Text, unpack)
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
@@ -99,7 +103,7 @@ options =
     , Option ['p'] ["postfix"]
         (ReqArg (\pfix opts -> return $ opts { optPostfix = pfix })
         "POSTFIX")
-        "postfix for saved files"
+        "postfix for saved files (domain<POSTFIX> and problem<POSTFIX>)"
     , Option ['s'] ["stats"]
         (NoArg (\opts -> return $ opts { optStats = True }))
         "Print problem bound statistics"
@@ -109,9 +113,8 @@ options =
     ]
 
 saveFile :: Options -> String -> String -> IO ()
-saveFile opts name contents = do
-    let oname = reverse (tail $ dropWhile (/= '.') $ reverse name) ++ optPostfix opts
-    writeFile oname contents
+saveFile opts name contents =
+    writeFile (name ++ optPostfix opts) contents
 
 
 errCheck :: (Show t) => Either t b -> IO b
@@ -128,18 +131,19 @@ taskParser = parens pddlExprLexer $
 
 replaceInitialTasks :: StandardHTNDomain -> StandardHTNProblem -> (StandardHTNDomain, StandardHTNProblem, Expr (Atomic ConstTermExpr))
 replaceInitialTasks domain problem = 
-    ( injectDomain injectedMethod
-    , setTaskList [(Nothing, tname :: Expr (Atomic TermExpr))] $
-        setConstraints [] $
-        setTaskOrdering [] $
-        setParameters [] problem
+    ( flip stripUnreachable problem' $ injectDomain injectedMethod
+    , problem'
     , tname
     )
     where
+    problem' = setTaskList [(Nothing, tname :: Expr (Atomic TermExpr))] $
+        setConstraints [] $
+        setTaskOrdering [] $
+        setParameters [] problem
     tname :: forall t . Expr (Atomic t)
     tname = eAtomic "htn_initial_task" ([] :: [t])
     injectDomain :: StandardMethod -> StandardHTNDomain
-    injectDomain m =
+    injectDomain m = trace (show $ pddlDoc m) $
         setTaskHead (tname : getTaskHead domain) $
         setActions (m : getActions domain) domain
     injectedMethod :: StandardMethod
@@ -156,6 +160,15 @@ replaceInitialTasks domain problem =
         setConstraints (getConstraints problem) $
         setTaskOrdering taskOrdering defaultMethod
 
+stripUnreachable :: StandardHTNDomain -> StandardHTNProblem -> StandardHTNDomain
+stripUnreachable dom prob =
+    setActions (reachable ++ headless) dom
+    where
+    headless = filter (isNothing . getTaskHead) $ getActions dom
+    reachable = 
+        concatMap (PB.findMethods dom :: Text -> [StandardMethod]) $
+        PB.findReachableTasks dom $
+        listTaskNames prob
 
 processProblem :: Options -> StandardHTNDomain -> String -> IO (Int, StandardHTNDomain)
 processProblem opts domain fname = do
@@ -165,12 +178,16 @@ processProblem opts domain fname = do
             [] -> problem
             tasks -> liftProblem tasks problem
     let (domain', problem', initialTask) = replaceInitialTasks domain lifted
+    traceM $ show $ pddlDoc domain'
+    traceM "------------------"
+    traceM $ show $ pddlDoc problem'
+    traceM "=================="
     let (lbound, lbounds) = {-# SCC "min-progression" #-} PM.minProgression domain' problem'
     when (optStats opts) $
-        putStrLn $ "Problem '" ++ show (getName problem') ++
+        putStrLn $ "Problem '" ++ unpack (getName problem') ++
             "' min progression bound: " ++ show lbound
     when (optVerbose opts) $
-        hPutStrLn stderr $ "Problem '" ++ show (getName problem') ++
+        hPutStrLn stderr $ "Problem '" ++ unpack (getName problem') ++
             "' min progression bound " ++ show lbound ++ ", tasks: " ++ show lbounds
 
     numIds <- if optNumIds opts > 0
@@ -189,7 +206,7 @@ processProblem opts domain fname = do
             ADLTranslation ->  ATrans.translateProblem emptyProblem numIds initialTask problem'
             -- ADLTranslation2 ->  ATrans2.translateProblem emptyProblem numIds initialTask problem'
             STRIPSTranslation -> translateProblem emptyProblem (optMaxArity opts) numIds initialTask problem'
-    {-# SCC "saving-file" #-} saveFile opts fname $ show $ pddlDoc (pddl_problem :: PDDLProblem)
+    {-# SCC "saving-file" #-} saveFile opts "problem" $ show $ pddlDoc (pddl_problem :: PDDLProblem)
     return (numIds, domain')
 
 main :: IO ()
@@ -227,7 +244,7 @@ main = do
         putStrLn $ "unary and type arity: "
             ++ show ((+) (length $ getTypes tdomain) $
                             length $ filter ((== 1) . length . taskArgs) $ getPredicates tdomain)
-    saveFile opts domFile $ show $ pddlDoc tdomain
+    saveFile opts "domain" $ show $ pddlDoc tdomain
     return ()
     where
     tailRec :: Options -> StandardHTNDomain -> IO StandardHTNDomain

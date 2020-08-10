@@ -4,15 +4,18 @@
   #-}
 module HTNTranslation.ProgressionMin (minProgression) where
 
+import Debug.Trace
+
 import Data.Function (on)
 import Data.List
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
---import Debug.Trace
-
 import HTNTranslation.HTNPDDL
 import HTNTranslation.ProgressionBounds (findMethods, findReachableTasks')
+
+traceShowId' :: Show a => String -> a -> a
+traceShowId' t a = trace (t ++ show a) a
 
 -- |Provides the minimum progression bound necessary for
 minProgression :: forall action domain problem.
@@ -23,15 +26,17 @@ minProgression :: forall action domain problem.
     , HasActions action domain
     , HasTaskList TermExpr problem
     , HasTaskOrdering problem
+    , Show action
     ) => domain -> problem -> (Int, [(Text, Int)])
 minProgression domain problem =
     (boundsGame problem bounds, bounds)
     where
     findM :: Text -> [action]
     findM = findMethods domain
-    bounds = map fst $ snd $
-        until (not . fst)
-            iterateBounds $
+    bounds :: [(Text, Int)]
+    bounds = traceShowId' "Bounds: " $
+        map fst $ snd $
+        until (not . fst) iterateBounds $
         (\lb -> (True, lb)) $
         map (\t -> ((t, maxBound), findM t :: [action])) $
         findReachableTasks'
@@ -39,7 +44,8 @@ minProgression domain problem =
         listTaskNames problem
     iterateBounds :: (Bool, [((Text, Int), [action])]) -> (Bool, [((Text, Int), [action])])
     iterateBounds (_, cbounds) = {-# SCC "iterateBounds" #-}
-        foldl (\(changed, l) ((t,tprevb),actions) ->
+        -- traceShowId' "iterateBounds: " $
+        foldl (\(changed, l) ((t, tprevb), actions) ->
                 let tnextb = foldl reboundAction tprevb $ filter (isPlausible tprevb) actions in
                 (changed || tnextb < tprevb, ((t, tnextb), actions) : l))
             (False, []) cbounds
@@ -51,7 +57,7 @@ minProgression domain problem =
             min bound $ boundsGame action ibounds
         -- only consider rebounding with plausible methods (subtasks all have lower bounds)
         isPlausible :: Int -> action -> Bool
-        isPlausible bound method =  
+        isPlausible bound method =
             all ((< bound) . taskBound ibounds . taskName . snd)
             (enumerateTasks method :: [(Int, Expr PDDLAtom)])
     
@@ -64,11 +70,11 @@ boundsGame tasked bounds =
     {-# SCC "bounds-game" #-} minimum $ bg (max 1 $ length tasks) taskWeights
     where
     tasks :: [(Int, Text)]
-    tasks = map (\(n, t) -> (n, taskName t)) (enumerateTasks tasked)
+    tasks = traceShowId' "tasks: " $ map (\(n, t) -> (n, taskName t)) (enumerateTasks tasked)
     taskOrdering :: [(Int, [Int])]
-    taskOrdering = map (\(t,_) -> (t, map fst $ findPrevTasks tasked t)) tasks
+    taskOrdering = traceShowId' "taskOrdering: " $ map (\(t,_) -> (t, map fst $ findPrevTasks tasked t)) tasks
     taskWeights :: [(Int, Int)]
-    taskWeights = map (\(n,t) -> (n, taskBound bounds t)) tasks
+    taskWeights = traceShowId' "taskWeights: " $ map (\(n,t) -> (n, taskBound bounds t)) tasks
 
     -- The actual game itself
     bg :: Int -> [(Int, Int)] -> [Int]
@@ -89,7 +95,7 @@ boundsGame tasked bounds =
         tn' = delete t tn
     -- Returns all tasks that do not have parents in current task network
     unconstrained :: [(Int, Int)] -> [(Int, Int)]
-    unconstrained tn =
+    unconstrained tn = traceShowId' ("unconstrained " ++ show tn ++ ": ") $
         filter ( null . intersect labels . fromMaybe [] . flip lookup taskOrdering . fst) tn
         where
         labels :: [Int]
@@ -97,4 +103,4 @@ boundsGame tasked bounds =
 
 
 taskBound :: [(Text, Int)] -> Text -> Int
-taskBound bounds = maybe maxBound id . flip lookup bounds
+taskBound bounds = fromMaybe maxBound . flip lookup bounds
