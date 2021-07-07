@@ -1,0 +1,14 @@
+## Singularity image - builds from Docker image, so build that first.
+Bootstrap: docker
+From: ronwalf/htntranslate:hpddl
+
+%post
+## All done in the Docker image
+
+%runscript
+    htntranslate $@
+
+%labels
+    Name   htntranslate-hpddl: HTN to PDDL translator for HPDDL (a pre-HDDL hierarchical task network description language)
+    Author ronwalf@volus.net
+    Version 0.1

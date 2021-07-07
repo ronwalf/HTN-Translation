@@ -1,0 +1,14 @@
+## Singularity image - builds from Docker image, so build that first.
+Bootstrap: docker
+From: ronwalf/htntranslate:hpddl
+
+%post
+## All done in the Docker image
+
+%runscript
+    htnunlift $@
+
+%labels
+    Name   htnunlift-hpddl: Part of the HTN to PDDL translator for HPDDL (a pre-HDDL hierarchical task network description language). Takes a domain and problem file, and produces a domain/problem pair where the initial task network is a single ground task (a requirement of the translator).
+    Author ronwalf@volus.net
+    Version 0.1
